@@ -28,10 +28,11 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
 
   const migration = analysisFor('society.migration').analysis;
   for (const input of [
-    'cell.happiness',
-    'cell.employment',
-    'cell.cash',
-    'cell.population',
+    'population.wellbeing',
+    'population.wealth',
+    'population.employed',
+    'cell.price',
+    'cell.output',
     'policy.laws.freeMovement',
   ]) {
     assert.ok(migration.inputs.some(candidate => candidate.key === input), `migration should read ${input}`);
@@ -72,22 +73,22 @@ test('rule influence traces exact downstream reads and recurrent self-dependenci
   )));
 });
 
-test('input influence traces exact upstream writers', () => {
+test('input influence traces migration back through population experience', () => {
   const { game, phase } = analysisFor('society.migration');
   const influence = analyzeRuleInputInfluence(
     game,
     phase,
     'society.migration',
-    'cell.happiness',
+    'population.wellbeing',
   );
 
   assert.ok(influence.readPaths.length > 0);
-  assert.ok(influence.readPaths.every(path => path.path.includes('.happiness')));
+  assert.ok(influence.readPaths.every(path => path.path.includes('.wellbeing')));
   assert.ok(influence.producers.some(producer => (
-    producer.ruleId === 'society.wellbeing'
-      && producer.phase === 'society'
+    producer.ruleId === 'population.experience'
+      && producer.phase === 'experience'
       && producer.strength > 0
-  )), 'migration happiness should trace back to society wellbeing');
+  )), 'migration wellbeing should trace back to population experience');
   assert.ok(influence.producers.every(producer => (
     producer.paths.length > 0 && producer.strength > 0 && producer.strength <= 1
   )));
