@@ -1,5 +1,5 @@
 import { clamp, randomAt } from '../math';
-import { SECTORS, type Mapxel, type PopulationGroup, type Sector } from '../types';
+import { SECTORS, type Mapxel, type PopulationGroup } from '../types';
 import { ARCHETYPE_COUNT, archetypeAt } from './archetypes';
 
 export interface GeneratedPopulation {
@@ -33,9 +33,6 @@ export function generatePopulation(seed: string, cells: readonly Mapxel[]): Gene
     selected.forEach(({ id, score }) => {
       const archetype = archetypeAt(seed, id);
       const archetypeShare = score / scoreTotal;
-      const occupation = SECTORS.reduce((best, sector) =>
-        cell[sector] * archetype.affinities[sector] > cell[best] * archetype.affinities[best]
-          ? sector : best, SECTORS[0]) as Sector;
       const common = {
         archetype: id,
         education: clamp(cell.education + (archetype.affinities.education - 0.5) * 0.18),
@@ -50,22 +47,32 @@ export function generatePopulation(seed: string, cells: readonly Mapxel[]): Gene
           solidarity: archetype.values.solidarity,
         },
       };
-      const add = (share: number, age: number, lifeStage: PopulationGroup['lifeStage'], employed: boolean) => {
+      const add = (
+        share: number,
+        age: number,
+        lifeStage: PopulationGroup['lifeStage'],
+        employed: boolean,
+        occupation: PopulationGroup['occupation'],
+      ) => {
         if (share <= 0) return;
         result.push({
           ...common,
           attitudes: { ...common.attitudes },
           id: nextId++, count: cell.population * archetypeShare * share,
-          age, lifeStage,
-          occupation: lifeStage === 'adult' ? occupation : null,
-          employed,
-          income: lifeStage === 'adult' ? (employed ? cell.output / cell.population : 0) : 0,
+          age, lifeStage, occupation, employed,
+          income: lifeStage === 'adult' && employed ? cell.output / cell.population : 0,
         });
       };
-      add(childShare, 10, 'child', false);
-      add(adultShare * cell.employment, 40, 'adult', true);
-      add(adultShare * (1 - cell.employment), 40, 'adult', false);
-      add(seniorShare, 72, 'senior', false);
+
+      add(childShare, 10, 'child', false, null);
+      // Occupation is mutable circumstance, not archetype identity. Distribute every
+      // archetype across the current local economy so the initial groups reproduce the
+      // mapxel's sector mix exactly; affinities influence later adaptation and selection.
+      for (const sector of SECTORS) {
+        add(adultShare * cell.employment * cell[sector], 40, 'adult', true, sector);
+        add(adultShare * (1 - cell.employment) * cell[sector], 40, 'adult', false, sector);
+      }
+      add(seniorShare, 72, 'senior', false, null);
     });
     // Assign the floating-point residue to one existing group so cell totals match exactly.
     result[result.length - 1].count += cell.population - result.reduce((sum, group) => sum + group.count, 0);
