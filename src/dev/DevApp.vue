@@ -187,7 +187,7 @@ function navigateToRule(target: {
   selectedPhaseIndex.value = phaseIndex;
   inspectedRuleId.value = target.ruleId;
   selectedRuleId.value = 'all';
-  navigationNote.value = `Followed ${target.via} → ${target.ruleId}; showing its current-month value.`;
+  navigationNote.value = `Followed ${target.via} → ${target.ruleId}; showing current month.`;
 }
 
 const cellChanges = computed(() => {
