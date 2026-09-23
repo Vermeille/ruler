@@ -33,7 +33,7 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(page.getByRole('heading', { name: 'market', exact: true })).toBeVisible();
   await expect(rulePicker).toContainText('1 rule');
   await expect(rulePicker.getByRole('button', { name: /economy.businesses/ })).toHaveClass(/active/);
-  await expect(rulePicker).toContainText('Scarcity changes local prices');
+  await expect(rulePicker).toContainText('Scarcity changes prices');
   await expect(lens).toContainText('economy.businesses');
 
   // Outputs are first-class graph centers. Crime should become the central node,
