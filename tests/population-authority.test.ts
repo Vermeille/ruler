@@ -8,7 +8,7 @@ import {
   occupationShareOf,
   wellbeingOf,
 } from '../src/sim/population/selectors';
-import { migrationRule, societyRule, defaultRules } from '../src/sim/rules';
+import { migrationRule, retrainingRule, societyRule, defaultRules } from '../src/sim/rules';
 import { SECTORS, type Effect, type Game, type Rule } from '../src/sim/types';
 import { step } from '../src/sim/engine';
 import { createGame } from '../src/sim/world';
@@ -28,7 +28,7 @@ test('population aggregation makes groups authoritative over social and labor ma
 
   for (const group of groups) {
     group.wellbeing = 0.23;
-    group.approval = 0.31;
+    group.apval = 0.31;
     if (group.lifeStage === 'adult') group.employed = group.occupation === 'services';
   }
 
@@ -61,6 +61,24 @@ test('employment transitions start from population groups, not the stale mapxel 
     .map(effect => ({ group: effect.group, amount: effect.amount, employed: effect.transition.employed }));
 
   assert.deepEqual(transitions(lowProjection), transitions(highProjection));
+});
+
+test('employed adults can switch sectors when policy makes another occupation materially better', () => {
+  const g = game();
+  const cell = land(g);
+  g.model.tick = 6;
+  g.model.budget.funding = 1;
+  g.model.policy.subsidies.sports = 3;
+  cell.sportsInterest = 1;
+  const source = g.model.populationGroups[cell.id].find(group =>
+    group.lifeStage === 'adult' && group.employed && group.occupation !== 'sports' && group.count >= 1)!;
+
+  const transition = effects(retrainingRule, g).find((effect): effect is Extract<Effect, { kind: 'population-transition' }> =>
+    effect.kind === 'population-transition' && effect.group === source.id);
+  assert.ok(transition);
+  assert.equal(transition.transition.occupation, 'sports');
+  assert.equal(transition.transition.employed, undefined);
+  assert.ok(transition.amount > 0 && transition.amount < source.count);
 });
 
 test('migration emerges from individual group circumstances rather than one precomputed cell flow', () => {
