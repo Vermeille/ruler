@@ -150,16 +150,16 @@
 
 .sensitivity-list {
   display: grid;
-  gap: 5px;
+  gap: 7px;
 }
 
 .sensitivity-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 2fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  gap: 7px 12px;
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 8px 10px;
+  min-height: 66px;
+  padding: 9px 11px 10px;
   border: 1px solid #222d41;
   border-radius: 8px;
   background: #0c1320;
@@ -170,13 +170,13 @@
 
 .sensitivity-row:hover,
 .sensitivity-row.active {
-  border-color: rgba(102, 207, 224, 0.75);
-  background: rgba(73, 166, 188, 0.08);
+  border-color: rgba(102, 207, 224, 0.82);
+  background: rgba(73, 166, 188, 0.09);
 }
 
 .sensitivity-row.inert {
   cursor: default;
-  opacity: 0.56;
+  opacity: 0.58;
 }
 
 .sensitivity-label {
@@ -188,60 +188,70 @@
 .sensitivity-label strong {
   overflow: hidden;
   color: #dce8f7;
-  font-size: 0.76rem;
+  font-size: 0.79rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .sensitivity-label small {
-  color: #6e7d94;
-  font-size: 0.64rem;
+  color: #708099;
+  font-size: 0.65rem;
+}
+
+.sensitivity-score {
+  grid-column: 2;
+  grid-row: 1;
+  text-align: right;
+  font: 800 0.9rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.sensitivity-score strong {
+  color: #f0fbff;
+}
+
+.sensitivity-score span {
+  color: #607089;
 }
 
 .sensitivity-bar {
   position: relative;
-  height: 16px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 14px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: 999px;
   background:
-    linear-gradient(90deg, transparent 24%, rgba(255,255,255,.04) 25%, transparent 26%, transparent 49%, rgba(255,255,255,.055) 50%, transparent 51%, transparent 74%, rgba(255,255,255,.04) 75%, transparent 76%),
-    #151e2e;
+    linear-gradient(90deg, transparent 24%, rgba(255,255,255,.05) 25%, transparent 26%, transparent 49%, rgba(255,255,255,.07) 50%, transparent 51%, transparent 74%, rgba(255,255,255,.05) 75%, transparent 76%),
+    #1a2537;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .sensitivity-bar i {
   display: block;
   height: 100%;
-  min-width: 2px;
-  border-radius: 4px;
+  min-width: 3px;
+  border-radius: inherit;
+  box-shadow: 0 0 8px currentColor;
 }
 
 .sensitivity-bar i.positive {
-  background: linear-gradient(90deg, rgba(63, 177, 138, 0.7), #54d6a7);
+  color: #54d6a7;
+  background: linear-gradient(90deg, #248d70, #5de5b4);
 }
 
 .sensitivity-bar i.negative {
-  background: linear-gradient(90deg, rgba(196, 74, 87, 0.72), #f5707a);
+  color: #f5707a;
+  background: linear-gradient(90deg, #a84452, #ff7d88);
 }
 
 .sensitivity-bar i.mixed {
-  background: linear-gradient(90deg, rgba(129, 91, 191, 0.74), #b482ff);
+  color: #b482ff;
+  background: linear-gradient(90deg, #704dc5, #c28dff);
 }
 
 .sensitivity-bar i.none {
-  background: #516078;
-}
-
-.sensitivity-score {
-  text-align: right;
-  font: 700 0.74rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.sensitivity-score strong {
-  color: #e9faff;
-}
-
-.sensitivity-score span {
-  color: #526178;
+  color: #66768e;
+  background: #66768e;
 }
 
 .sensitivity-detail {
@@ -520,11 +530,6 @@
   .analysis-sampling {
     width: 100%;
     flex-basis: auto;
-  }
-
-  .sensitivity-row {
-    grid-template-columns: minmax(120px, 1fr) minmax(90px, 1.5fr) 36px;
-    gap: 8px;
   }
 
   .sensitivity-detail > div:not(.causal-arrow) {
