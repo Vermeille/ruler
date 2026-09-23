@@ -36,6 +36,29 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(rulePicker).toContainText('Scarcity changes local prices');
   await expect(lens).toContainText('economy.businesses');
 
+  // Outputs are first-class graph centers. Crime should become the central node,
+  // with local drivers on the left and exact-path consumers on the right.
+  await phases.getByRole('button', { name: /society/ }).click();
+  await expect(page.getByRole('heading', { name: 'society', exact: true })).toBeVisible();
+  const crimeOutput = graph.locator('.rule-graph-node-output').filter({ hasText: 'Crime' });
+  await expect(crimeOutput).toBeVisible();
+  await crimeOutput.click();
+  await expect(graph).toHaveClass(/variable-centered/);
+  await expect(graph).toContainText('VARIABLE GRAPH');
+  await expect(graph).toContainText('What changes Crime');
+  const crimeNode = graph.locator('.rule-graph-node-variable');
+  await expect(crimeNode).toBeVisible();
+  await expect(crimeNode).toContainText('Crime');
+  await expect(crimeNode).toContainText('society.wellbeing');
+  await expect(graph.locator('.rule-graph-edge-input').first()).toBeVisible();
+  await expect(graph.locator('.rule-graph-node-consumer').first()).toBeVisible();
+  await expect(graph).toContainText('WHAT IT FEEDS');
+
+  // Clicking the centered variable returns to the producer rule view.
+  await crimeNode.click();
+  await expect(graph).not.toHaveClass(/variable-centered/);
+  await expect(graph.locator('.rule-graph-node-rule')).toContainText('society.wellbeing');
+
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
   await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
