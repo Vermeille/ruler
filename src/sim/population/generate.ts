@@ -1,5 +1,5 @@
 import { clamp, randomAt } from '../math';
-import { SECTORS, type Mapxel, type PopulationGroup } from '../types';
+import { SECTORS, type Mapxel, type PopulationGroup, type Sector } from '../types';
 import { ARCHETYPE_COUNT, archetypeAt } from './archetypes';
 
 export interface GeneratedPopulation {
@@ -65,13 +65,19 @@ export function generatePopulation(seed: string, cells: readonly Mapxel[]): Gene
       };
 
       add(childShare, 10, 'child', false, null);
-      // Occupation is mutable circumstance, not archetype identity. Distribute every
-      // archetype across the current local economy so the initial groups reproduce the
-      // mapxel's sector mix exactly; affinities influence later adaptation and selection.
+
+      // Occupation is mutable circumstance, not archetype identity. Employed adults are
+      // distributed across the current local economy so their aggregate reproduces the
+      // mapxel sector mix exactly. Unemployed adults keep one occupational background and
+      // can later retrain; this avoids multiplying every archetype into tiny idle cohorts.
       for (const sector of SECTORS) {
         add(adultShare * cell.employment * cell[sector], 40, 'adult', true, sector);
-        add(adultShare * (1 - cell.employment) * cell[sector], 40, 'adult', false, sector);
       }
+      const unemployedOccupation = SECTORS.reduce((best, sector) =>
+        cell[sector] * archetype.affinities[sector] > cell[best] * archetype.affinities[best]
+          ? sector : best, SECTORS[0]) as Sector;
+      add(adultShare * (1 - cell.employment), 40, 'adult', false, unemployedOccupation);
+
       add(seniorShare, 72, 'senior', false, null);
     });
     // Assign the floating-point residue to one existing group so cell totals match exactly.
