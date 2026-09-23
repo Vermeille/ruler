@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeRule } from '../src/dev/rule-analysis';
+import { analyzeRuleInfluence } from '../src/dev/rule-influence';
 import { traceStep } from '../src/sim/trace';
 import { createGame } from '../src/sim/world';
 
@@ -13,7 +14,7 @@ function analysisFor(ruleId: string) {
   assert.ok(phase, `missing phase for ${ruleId}`);
   const analysis = analyzeRule(game, phase, ruleId);
   assert.ok(analysis, `missing analysis for ${ruleId}`);
-  return { game, analysis };
+  return { game, phase, analysis };
 }
 
 test('causal analysis discovers actual reads and outputs for stochastic, spatial, and national rules', () => {
@@ -40,6 +41,31 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
   const fiscal = analysisFor('state.services').analysis;
   assert.ok(fiscal.inputs.some(input => input.category === 'budget' || input.category === 'global'));
   assert.ok(fiscal.outputs.length > 0);
+});
+
+test('rule influence traces exact downstream reads and recurrent self-dependencies', () => {
+  const { game, phase } = analysisFor('society.migration');
+  const influence = analyzeRuleInfluence(
+    game,
+    phase,
+    'society.migration',
+    'transfer.population',
+  );
+
+  assert.ok(influence.writtenPaths.length > 0);
+  assert.ok(influence.writtenPaths.every(path => path.path.includes('.population')));
+  assert.ok(influence.consumers.some(consumer => (
+    consumer.month === 'next month'
+      && consumer.ruleId === 'society.migration'
+      && consumer.self
+      && consumer.strength > 0
+  )), 'migration population should feed migration again next month');
+  assert.ok(influence.consumers.some(consumer => (
+    consumer.ruleId !== 'society.migration' && consumer.strength > 0
+  )), 'migration population should feed at least one other rule');
+  assert.ok(influence.consumers.every(consumer => (
+    consumer.paths.length > 0 && consumer.strength > 0 && consumer.strength <= 1
+  )));
 });
 
 test('every current simulation rule can be explained without mutating the game', () => {
