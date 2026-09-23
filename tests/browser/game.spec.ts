@@ -3,11 +3,18 @@ test('play, inspect, govern, save, reload, and complete a mandate', async ({ pag
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'A country in your hands.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({ path: 'test-results/commonwealth-desktop.png', fullPage: true });
   await page.getByLabel('Select a region').selectOption('1');
   await expect(page.locator('.inspector h2')).toContainText('mapxels selected');
   await page.getByRole('button', { name: 'Food access', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('button', { name: 'Food access', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Trade', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Food access', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Trade', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Next month' }).click();
   await expect(page.locator('.date strong')).toHaveText('Feb 2032');
   await page.getByRole('button', { name: 'Console', exact: true }).click();
