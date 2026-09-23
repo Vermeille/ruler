@@ -3,6 +3,7 @@ import type {
   Effect,
   Evidence,
   Mapxel,
+  PopulationGroup,
   Rule,
 } from '../types';
 import { delta, isLand, read } from './helpers';
@@ -14,10 +15,18 @@ function violentCrimeChance(cell: DeepReadonly<Mapxel>): number {
 export const eventRule: Rule = {
   id: 'stories.events',
   phase: 'events',
-  description: 'Seeded, risk-conditioned events create shared memories and feed back into local and national life.',
+  description: 'Seeded, risk-conditioned events change the world and the population groups who experience them.',
   run({ model, random, lastEvents }) {
     const effects: Effect[] = [];
     const candidates = model.cells.filter(isLand);
+    const wellbeingShocks = new Map<number, { cell: number; group: DeepReadonly<PopulationGroup>; change: number }>();
+    const shockWellbeing = (cell: DeepReadonly<Mapxel>, change: number) => {
+      for (const group of model.populationGroups[cell.id]) {
+        const current = wellbeingShocks.get(group.id);
+        wellbeingShocks.set(group.id, { cell: cell.id, group, change: (current?.change ?? 0) + change });
+      }
+    };
+
     for (const cell of candidates) {
       if (cell.waterStress > 0) effects.push(delta(cell, 'waterStress', -cell.waterStress * 0.35));
     }
@@ -57,13 +66,17 @@ export const eventRule: Rule = {
       });
 
       for (const cell of candidates) {
+        const shock = cell.id === crime.id ? -0.06 : -0.008;
+        // Legacy projection for existing event tests and UI. The matching group shock below
+        // makes the population state the durable source of truth.
         effects.push({
           kind: 'delta',
           cell: cell.id,
           field: 'happiness',
-          amount: cell.id === crime.id ? -0.06 : -0.008,
+          amount: shock,
           eventKey: 'violentCrime',
         });
+        shockWellbeing(cell, shock);
       }
     }
 
@@ -107,6 +120,7 @@ export const eventRule: Rule = {
           amount: sport.population * 0.4,
         },
       );
+      shockWellbeing(sport, 0.04);
     }
 
     const farm = choose('weather-place');
@@ -148,6 +162,17 @@ export const eventRule: Rule = {
         ));
         effects.push({ kind: 'delta', cell: cell.id, field: 'waterStress', amount: (1 - cell.waterStress) * 0.4, eventKey: 'drought' });
       }
+    }
+
+    for (const { cell, group, change } of wellbeingShocks.values()) {
+      if (Math.abs(change) <= 1e-12) continue;
+      effects.push({
+        kind: 'population-state',
+        cell,
+        group: group.id,
+        amount: group.count,
+        change: { wellbeing: change },
+      });
     }
 
     return effects;

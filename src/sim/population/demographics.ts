@@ -1,6 +1,7 @@
 import { clamp } from '../math';
 import { SECTORS, type DeepReadonly, type Effect, type PopulationGroup, type Rule } from '../types';
 import { archetypeAt } from './archetypes';
+import { healthOf, wellbeingOf } from './selectors';
 
 /** Life stages change only after the monthly age increment has settled. */
 export const populationAgingRule: Rule = {
@@ -56,7 +57,7 @@ function inheritedArchetype(
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
   phase: 'demographics',
-  description: 'Reproductive adults have children; age, health and food access expose actual groups to mortality.',
+  description: 'Reproductive adults have children; actual group wellbeing, health, age, and food access determine demographic pressure.',
   run({ model, random }) {
     const effects: Effect[] = [];
     for (const cell of model.cells) {
@@ -66,7 +67,9 @@ export const populationDemographicsRule: Rule = {
       const parentWeight = (group: DeepReadonly<PopulationGroup>) => group.count
         * (0.7 + archetypeAt(model.seed, group.archetype, model.archetypeModelVersion).traits.familyOrientation * 0.6);
       const reproductiveMass = parents.reduce((sum, group) => sum + parentWeight(group), 0);
-      const birthRate = 0.00065 + cell.happiness * 0.00055 + cell.health * 0.0002;
+      const livedWellbeing = wellbeingOf(model, cell.id);
+      const livedHealth = healthOf(model, cell.id);
+      const birthRate = 0.00065 + livedWellbeing * 0.00055 + livedHealth * 0.0002;
       // Batch fractional births into yearly cohorts so a mapxel does not
       // accumulate dozens of tiny, distinct newborn groups each year.
       const births = model.tick % 12 === 0
@@ -93,12 +96,12 @@ export const populationDemographicsRule: Rule = {
             detail: `${births.toFixed(1)} children are born to local adults. Most inherit a parent's archetype; a small share varies.`,
             cells: [cell.id],
             reads: [{ cell: cell.id, group: parent.id, field: 'age', label: 'Parent cohort age' },
-              { cell: cell.id, field: 'health', label: 'Local health' }],
+              { cell: cell.id, group: parent.id, field: 'health', label: 'Parent health' }],
           } : undefined,
         });
       }
 
-      const deathRate = 0.00095 + (1 - cell.health) * 0.0005 + (1 - cell.foodSecurity) * 0.0008;
+      const deathRate = 0.00095 + (1 - livedHealth) * 0.0005 + (1 - cell.foodSecurity) * 0.0008;
       const targetDeaths = Math.min(cell.population,
         cell.population * deathRate + cell.starvationDeaths);
       const weighted = groups.map(group => ({ group, weight: group.count * mortalityWeight(group, cell.foodSecurity) }));

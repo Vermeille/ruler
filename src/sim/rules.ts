@@ -6,6 +6,7 @@ import {
   tradeRule,
 } from './rules/economy';
 import { eventRule } from './rules/events';
+import { populationAggregationRule } from './population/aggregation';
 import { populationExperienceRule } from './population/experience';
 import { populationAgingRule, populationDemographicsRule } from './population/demographics';
 import { retrainingRule } from './population/retraining';
@@ -22,6 +23,7 @@ export {
   marketRule,
   migrationRule,
   productionRule,
+  populationAggregationRule,
   populationExperienceRule,
   populationAgingRule,
   populationDemographicsRule,
@@ -44,7 +46,7 @@ export const defaultRules: readonly Rule[] = [
   populationAgingRule,
   populationDemographicsRule,
   migrationRule,
-  adaptationRule,
   retrainingRule,
   eventRule,
+  populationAggregationRule,
 ];
