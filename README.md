@@ -31,21 +31,34 @@ The simulation itself deliberately does **not** depend on Vue. The framework-ind
 | `types.ts` | Mapxels, government actions, effects, rules, causal records |
 | `world.ts` | Seeded country, regions, cities, land/resources, starting calibration |
 | `engine.ts` | Immutable phase snapshots, simultaneous settlement, validation, atomic ticks |
-| `rules.ts` | Production, local trade, consumption, prices/businesses, taxes, finance, services, society, migration, labor adaptation, events |
+| `rules.ts` + `rules/` | Stable rule registry plus economy, state, society, event, and shared rule implementations |
 | `policy.ts` | Strict DSL and JSON validation, scoped policies, cost previews, atomic enactment |
 | `narrative.ts` | Evidence-linked news, causal traversal, community voices and mandate reports |
 | `save.ts` | Versioned serialization and structural/reference validation |
+| `trace.ts` | Developer-only instrumentation of rule proposals and phase snapshots |
 
 See [the simulation design](docs/SIMULATION.md) for units, economic assumptions, calibration, extension contracts, and limits. [The action reference](docs/ACTIONS.md) describes the future AI boundary.
+
+## Simulation workbench
+
+The developer workbench exposes the engine's actual phase execution without changing the player UI. Start the normal dev server and open:
+
+```text
+http://localhost:5173/?dev=1
+```
+
+The workbench previews the next month without mutating its current game state. You can move through every phase, inspect each rule and its raw proposed effects, compare national summaries before and after settlement, inspect per-mapxel field changes, and see public-account updates, causal records, and generated articles. **Commit month** accepts the traced result and prepares the next tick.
+
+`traceStep()` is intentionally separate from the production `step()` entrypoint, and the test suite asserts that both produce exactly the same final `Game`. That equivalence test is the guardrail against a debug UI becoming its own subtly different simulation, a species of bug with a surprisingly healthy natural habitat.
 
 ## Verification
 
 ```sh
-npm test                 # conservation, determinism, policy, saves, full mandates, stress and long-run tests
+npm test                 # conservation, determinism, policy, saves, traces, full mandates, stress and long-run tests
 npm run build            # Vue/TypeScript type check and production bundle
 npm run calibrate        # 15 full-size runs: five policy scenarios × three seeds
 npx playwright install chromium
-npm run test:e2e         # browser playthrough, policy, selection, save/reload, mandate, mobile, invalid imports
+npm run test:e2e         # player regressions plus simulation-workbench interaction coverage
 ```
 
 Linux browser testing also requires Chromium's system libraries (`npx playwright install-deps chromium`). To use an existing Chromium installation, set `COMMONWEALTH_CHROME` to its executable path. These are testing requirements; the game itself runs in a normal browser.
