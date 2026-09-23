@@ -34,6 +34,16 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(graph.locator('.rule-graph-node-consumer').first()).toBeVisible();
   await expect(graph.locator('.rule-graph-feedback-edge')).toBeVisible();
   await expect(graph).toContainText('t → t+1 feedback');
+
+  const graphBox = await graph.locator('.rule-graph-scroll').boundingBox();
+  const outputBox = await graph.locator('.rule-graph-node-output').first().boundingBox();
+  const consumerBox = await graph.locator('.rule-graph-node-consumer').first().boundingBox();
+  expect(graphBox).not.toBeNull();
+  expect(outputBox).not.toBeNull();
+  expect(consumerBox).not.toBeNull();
+  expect(outputBox!.x + outputBox!.width).toBeLessThanOrEqual(graphBox!.x + graphBox!.width + 1);
+  expect(consumerBox!.x + consumerBox!.width).toBeLessThanOrEqual(graphBox!.x + graphBox!.width + 1);
+
   await expect(lens).toContainText('MAP WRITES');
   await expect(lens).toContainText('Bright cells simply mean this rule writes more strongly there');
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
