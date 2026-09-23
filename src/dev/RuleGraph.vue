@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { JacobianCell, RuleAnalysis } from './rule-analysis';
 import type { RuleConsumer, RuleInfluence } from './rule-influence';
 import './rule-graph.css';
@@ -26,11 +26,16 @@ const RULE_WIDTH = 250;
 const RULE_HEIGHT = 96;
 const OUTPUT_X = 790;
 const OUTPUT_WIDTH = 220;
+const VARIABLE_X = 510;
+const VARIABLE_WIDTH = 310;
+const VARIABLE_HEIGHT = 116;
 const CONSUMER_X = 1120;
 const CONSUMER_WIDTH = 215;
 const NODE_HEIGHT = 44;
 const MAX_GRAPH_INPUTS = 8;
 const MAX_GRAPH_CONSUMERS = 8;
+
+type CenterMode = 'rule' | 'variable';
 
 interface GraphInput {
   key: string;
@@ -39,13 +44,31 @@ interface GraphInput {
   sensitivity?: JacobianCell;
 }
 
+const centerMode = ref<CenterMode>('rule');
+const centeredOutputKey = ref('');
+
+watch(() => props.analysis.ruleId, () => {
+  centerMode.value = 'rule';
+  centeredOutputKey.value = '';
+});
+
+const activeOutputKey = computed(() => (
+  centerMode.value === 'variable'
+    ? centeredOutputKey.value || props.selectedOutputKey
+    : props.selectedOutputKey
+));
+
+const selectedOutput = computed(() => (
+  props.analysis.outputs.find(output => output.key === activeOutputKey.value)
+));
+
 const graphInputs = computed<GraphInput[]>(() => {
   const rows = props.analysis.inputs.map(input => ({
     key: input.key,
     label: input.label,
     reads: input.reads,
     sensitivity: props.analysis.jacobian.find(cell => (
-      cell.inputKey === input.key && cell.outputKey === props.selectedOutputKey
+      cell.inputKey === input.key && cell.outputKey === activeOutputKey.value
     )),
   }));
 
@@ -80,7 +103,7 @@ const feedback = computed(() => (
 const graphHeight = computed(() => {
   const lanes = Math.max(
     graphInputs.value.length,
-    graphOutputs.value.length,
+    centerMode.value === 'rule' ? graphOutputs.value.length : 0,
     graphConsumers.value.length,
     6,
   );
@@ -89,6 +112,14 @@ const graphHeight = computed(() => {
 
 const ruleY = computed(() => (graphHeight.value - RULE_HEIGHT) / 2);
 const ruleCenterY = computed(() => ruleY.value + RULE_HEIGHT / 2);
+const variableY = computed(() => (graphHeight.value - VARIABLE_HEIGHT) / 2);
+const variableCenterY = computed(() => variableY.value + VARIABLE_HEIGHT / 2);
+const centerY = computed(() => (
+  centerMode.value === 'variable' ? variableCenterY.value : ruleCenterY.value
+));
+const centerX = computed(() => (
+  centerMode.value === 'variable' ? VARIABLE_X : RULE_X
+));
 const maxOutputChannels = computed(() => Math.max(
   1,
   ...graphOutputs.value.map(output => output.effects),
@@ -104,7 +135,7 @@ function laneY(index: number, count: number, height = NODE_HEIGHT): number {
 
 function inputPath(index: number): string {
   const y = laneY(index, graphInputs.value.length) + NODE_HEIGHT / 2;
-  return `M ${INPUT_X + INPUT_WIDTH} ${y} C 330 ${y}, 350 ${ruleCenterY.value}, ${RULE_X} ${ruleCenterY.value}`;
+  return `M ${INPUT_X + INPUT_WIDTH} ${y} C 330 ${y}, 360 ${centerY.value}, ${centerX.value} ${centerY.value}`;
 }
 
 function outputPath(index: number): string {
@@ -113,19 +144,36 @@ function outputPath(index: number): string {
 }
 
 function consumerPath(index: number): string {
+  const targetY = laneY(index, graphConsumers.value.length) + NODE_HEIGHT / 2;
+
+  if (centerMode.value === 'variable') {
+    return `M ${VARIABLE_X + VARIABLE_WIDTH} ${variableCenterY.value} C 920 ${variableCenterY.value}, 1010 ${targetY}, ${CONSUMER_X} ${targetY}`;
+  }
+
   const outputIndex = Math.max(
     0,
-    graphOutputs.value.findIndex(output => output.key === props.selectedOutputKey),
+    graphOutputs.value.findIndex(output => output.key === activeOutputKey.value),
   );
   const sourceY = laneY(outputIndex, graphOutputs.value.length) + NODE_HEIGHT / 2;
-  const targetY = laneY(index, graphConsumers.value.length) + NODE_HEIGHT / 2;
   return `M ${OUTPUT_X + OUTPUT_WIDTH} ${sourceY} C 1050 ${sourceY}, 1060 ${targetY}, ${CONSUMER_X} ${targetY}`;
 }
 
 function feedbackPath(): string {
+  if (centerMode.value === 'variable') {
+    const sourceX = VARIABLE_X + VARIABLE_WIDTH;
+    const sourceY = variableCenterY.value;
+    const targetX = VARIABLE_X + VARIABLE_WIDTH * 0.35;
+    const targetY = variableY.value;
+    return [
+      `M ${sourceX} ${sourceY}`,
+      `C 990 ${sourceY}, 990 28, 810 28`,
+      `C 650 28, ${targetX} 28, ${targetX} ${targetY}`,
+    ].join(' ');
+  }
+
   const outputIndex = Math.max(
     0,
-    graphOutputs.value.findIndex(output => output.key === props.selectedOutputKey),
+    graphOutputs.value.findIndex(output => output.key === activeOutputKey.value),
   );
   const sourceY = laneY(outputIndex, graphOutputs.value.length) + NODE_HEIGHT / 2;
   const targetX = RULE_X + RULE_WIDTH * 0.62;
@@ -179,21 +227,48 @@ function outputValue(key: string): string {
   return output.magnitude.toPrecision(3);
 }
 
+function variableLabel(): string {
+  return (selectedOutput.value?.label ?? activeOutputKey.value)
+    .replace(/^Δ\s*/, '')
+    .trim();
+}
+
 function selectInput(row: GraphInput): void {
   if (row.sensitivity) emit('selectSensitivity', row.sensitivity.key);
   emit('inspectInput', row.key);
 }
+
+function centerOutput(key: string): void {
+  centeredOutputKey.value = key;
+  centerMode.value = 'variable';
+  emit('selectOutput', key);
+}
+
+function centerRule(): void {
+  centerMode.value = 'rule';
+}
 </script>
 
 <template>
-  <section class="rule-graph-card" aria-label="Rule influence graph">
+  <section
+    class="rule-graph-card"
+    :class="{ 'variable-centered': centerMode === 'variable' }"
+    :aria-label="centerMode === 'variable' ? 'Variable influence graph' : 'Rule influence graph'"
+  >
     <div class="lens-section-heading rule-graph-heading">
-      <div>
+      <div v-if="centerMode === 'rule'">
         <span class="dev-kicker">RULE GRAPH</span>
         <h4>What feeds this rule, and what does it feed?</h4>
       </div>
-      <p>
-        Input edges show the local gradient for the selected output. Click an input or consumer to recenter the graph on the related rule in this current month. Time labels still describe the relationship; they do not move the inspector through time.
+      <div v-else>
+        <span class="dev-kicker">VARIABLE GRAPH</span>
+        <h4>What changes {{ variableLabel() }}, and what reads it?</h4>
+      </div>
+      <p v-if="centerMode === 'rule'">
+        Input edges show the local gradient for the selected output. Click an output to center that variable, or click an input or consumer to inspect the related rule in this current month.
+      </p>
+      <p v-else>
+        Incoming edges show which reads of {{ analysis.ruleId }} locally raise or lower this variable in the current state. Outgoing edges are rules that read the exact state written here. Click the center to return to the producing rule.
       </p>
     </div>
 
@@ -203,7 +278,7 @@ function selectInput(row: GraphInput): void {
         :viewBox="`0 0 ${GRAPH_WIDTH} ${graphHeight}`"
         :style="{ minHeight: `${Math.min(760, graphHeight * 0.66)}px` }"
         role="img"
-        :aria-label="`Causal graph for ${analysis.ruleId}`"
+        :aria-label="centerMode === 'variable' ? `Causal graph for ${variableLabel()}` : `Causal graph for ${analysis.ruleId}`"
       >
         <defs>
           <marker id="graph-arrow-positive" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
@@ -232,10 +307,17 @@ function selectInput(row: GraphInput): void {
           </marker>
         </defs>
 
-        <text class="graph-column-label" :x="INPUT_X" y="28">INPUTS · LOCAL GRADIENT</text>
-        <text class="graph-column-label" :x="RULE_X + RULE_WIDTH / 2" y="28" text-anchor="middle">CURRENT RULE</text>
-        <text class="graph-column-label" :x="OUTPUT_X" y="28">OUTPUTS</text>
-        <text class="graph-column-label" :x="CONSUMER_X" y="28">DIRECT CONSUMERS</text>
+        <template v-if="centerMode === 'rule'">
+          <text class="graph-column-label" :x="INPUT_X" y="28">INPUTS · LOCAL GRADIENT</text>
+          <text class="graph-column-label" :x="RULE_X + RULE_WIDTH / 2" y="28" text-anchor="middle">CURRENT RULE</text>
+          <text class="graph-column-label" :x="OUTPUT_X" y="28">OUTPUTS · CLICK TO CENTER</text>
+          <text class="graph-column-label" :x="CONSUMER_X" y="28">DIRECT CONSUMERS</text>
+        </template>
+        <template v-else>
+          <text class="graph-column-label" :x="INPUT_X" y="28">WHAT CHANGES IT · LOCAL GRADIENT</text>
+          <text class="graph-column-label" :x="VARIABLE_X + VARIABLE_WIDTH / 2" y="28" text-anchor="middle">CURRENT VARIABLE</text>
+          <text class="graph-column-label" :x="CONSUMER_X" y="28">WHAT IT FEEDS</text>
+        </template>
 
         <g class="graph-input-edges">
           <path
@@ -251,12 +333,12 @@ function selectInput(row: GraphInput): void {
           />
         </g>
 
-        <g class="graph-output-edges">
+        <g v-if="centerMode === 'rule'" class="graph-output-edges">
           <path
             v-for="(output, index) in graphOutputs"
             :key="`output-edge:${output.key}`"
             class="rule-graph-edge rule-graph-edge-output"
-            :class="{ selected: output.key === selectedOutputKey }"
+            :class="{ selected: output.key === activeOutputKey }"
             :d="outputPath(index)"
             fill="none"
             stroke="#58c9da"
@@ -318,33 +400,56 @@ function selectInput(row: GraphInput): void {
         </g>
 
         <g
+          v-if="centerMode === 'rule'"
           class="rule-graph-node rule-graph-node-rule"
           :transform="`translate(${RULE_X} ${ruleY})`"
         >
           <rect :width="RULE_WIDTH" :height="RULE_HEIGHT" rx="16" />
-          <text :x="RULE_WIDTH / 2" y="28" text-anchor="middle" class="graph-rule-kicker">INSPECTING</text>
+          <text :x="RULE_WIDTH / 2" y="28" text-anchor="middle" class="graph-rule-kicker">INSPECTING RULE</text>
           <text :x="RULE_WIDTH / 2" y="52" text-anchor="middle" class="graph-rule-title">{{ shortLabel(analysis.ruleId, 29) }}</text>
           <text :x="RULE_WIDTH / 2" y="73" text-anchor="middle" class="graph-rule-meta">
-            {{ selectedOutputKey ? `gradient wrt ${shortLabel(analysis.outputs.find(output => output.key === selectedOutputKey)?.label ?? '', 23)}` : analysis.phase }}
+            {{ activeOutputKey ? `gradient wrt ${shortLabel(selectedOutput?.label ?? '', 23)}` : analysis.phase }}
           </text>
         </g>
 
         <g
-          v-for="(output, index) in graphOutputs"
+          v-for="(output, index) in centerMode === 'rule' ? graphOutputs : []"
           :key="`output:${output.key}`"
           class="rule-graph-node rule-graph-node-output"
-          :class="{ selected: output.key === selectedOutputKey }"
+          :class="{ selected: output.key === activeOutputKey }"
           :transform="`translate(${OUTPUT_X} ${laneY(index, graphOutputs.length)})`"
           role="button"
           tabindex="0"
-          @click="emit('selectOutput', output.key)"
-          @keydown.enter.prevent="emit('selectOutput', output.key)"
-          @keydown.space.prevent="emit('selectOutput', output.key)"
+          @click="centerOutput(output.key)"
+          @keydown.enter.prevent="centerOutput(output.key)"
+          @keydown.space.prevent="centerOutput(output.key)"
         >
-          <title>{{ output.label }} · {{ output.effects }} channels · magnitude {{ output.magnitude }}</title>
+          <title>{{ output.label }} · {{ output.effects }} channels · magnitude {{ output.magnitude }} · click to center variable</title>
           <rect :width="OUTPUT_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(output.label, 27) }}</text>
           <text x="12" y="34" class="graph-node-meta">{{ output.effects }} channels · {{ outputValue(output.key) }}</text>
+        </g>
+
+        <g
+          v-if="centerMode === 'variable' && selectedOutput"
+          class="rule-graph-node rule-graph-node-variable"
+          :transform="`translate(${VARIABLE_X} ${variableY})`"
+          role="button"
+          tabindex="0"
+          @click="centerRule"
+          @keydown.enter.prevent="centerRule"
+          @keydown.space.prevent="centerRule"
+        >
+          <title>{{ variableLabel() }} · produced by {{ analysis.ruleId }} · click to inspect the rule</title>
+          <rect :width="VARIABLE_WIDTH" :height="VARIABLE_HEIGHT" rx="18" />
+          <text :x="VARIABLE_WIDTH / 2" y="26" text-anchor="middle" class="graph-rule-kicker">INSPECTING VARIABLE</text>
+          <text :x="VARIABLE_WIDTH / 2" y="54" text-anchor="middle" class="graph-variable-title">{{ shortLabel(variableLabel(), 32) }}</text>
+          <text :x="VARIABLE_WIDTH / 2" y="78" text-anchor="middle" class="graph-variable-value">
+            this month · {{ selectedOutput.effects }} writes · magnitude {{ outputValue(selectedOutput.key) }}
+          </text>
+          <text :x="VARIABLE_WIDTH / 2" y="99" text-anchor="middle" class="graph-rule-meta">
+            via {{ shortLabel(analysis.ruleId, 30) }} · click for rule
+          </text>
         </g>
 
         <g
@@ -370,13 +475,14 @@ function selectInput(row: GraphInput): void {
     </div>
 
     <div class="rule-graph-legend">
-      <span><i class="positive" /> positive input gradient</span>
-      <span><i class="negative" /> negative input gradient</span>
-      <span><i class="mixed" /> mixed gradient</span>
+      <span><i class="positive" /> positive local gradient</span>
+      <span><i class="negative" /> negative local gradient</span>
+      <span><i class="mixed" /> mixed local gradient</span>
       <span><i class="same-month" /> same-month direct consumer</span>
-      <span><i class="next-month" /> next-month relationship; click inspects current value</span>
+      <span><i class="next-month" /> next-tick relationship; click inspects current value</span>
       <span><i class="feedback" /> recurrent self-dependency</span>
-      <small>Input width = normalized local derivative · output width = emitted channel breadth · consumer width = share of exact written paths reread</small>
+      <small v-if="centerMode === 'rule'">Input width = normalized local derivative · output width = emitted channel breadth · consumer width = share of exact written paths reread</small>
+      <small v-else>Incoming width = normalized local derivative of this variable · outgoing width = share of this variable's exact written paths reread by the consumer</small>
     </div>
   </section>
 </template>
