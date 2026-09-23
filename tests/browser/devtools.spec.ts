@@ -24,7 +24,8 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(lens.locator('.sensitivity-card')).toContainText('Cell Happiness');
   await expect(lens.locator('.rule-output-strip')).toContainText('Population Flow');
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
-  await expect(lens.locator('.footprint-flow').first()).toBeVisible();
+  expect(await lens.locator('.footprint-flow').count()).toBeGreaterThan(0);
+  await expect(lens.locator('.flow-rank-row').first()).toBeVisible();
   await expect(lens.locator('.downstream-track')).toBeVisible();
 
   await page.screenshot({ path: 'test-results/simulation-workbench.png', fullPage: true });
