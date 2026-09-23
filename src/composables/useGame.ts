@@ -3,7 +3,7 @@ import { createGame } from '../sim/world';
 import { step } from '../sim/engine';
 import { deserialize, serialize } from '../sim/save';
 import type { Game } from '../sim/types';
-import type { Layer } from '../ui/map';
+import { ALL_LAYERS, type Layer } from '../ui/map-layers';
 import { loadAutosave, storeAutosave } from '../ui/storage';
 
 export interface GameNotifications {
@@ -13,7 +13,7 @@ export interface GameNotifications {
 export function useGame(notifications: GameNotifications) {
   const game = shallowRef<Game>(createGame());
   const selected = ref<Set<number>>(new Set());
-  const layer = ref<Layer>('terrain');
+  const layers = ref<Layer[]>([...ALL_LAYERS]);
   const zoom = ref(1);
   const roads = ref(false);
   const running = ref(false);
@@ -102,7 +102,7 @@ export function useGame(notifications: GameNotifications) {
     pause();
     game.value = next;
     clearSelection();
-    layer.value = 'terrain';
+    layers.value = [...ALL_LAYERS];
     zoom.value = 1;
     roads.value = false;
     void save();
@@ -135,7 +135,7 @@ export function useGame(notifications: GameNotifications) {
   return {
     game,
     selected,
-    layer,
+    layers,
     zoom,
     roads,
     running,
