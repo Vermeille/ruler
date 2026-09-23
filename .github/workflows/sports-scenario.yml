@@ -13,4 +13,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
-      - run: npx tsx scripts/sports-scenario.ts
+      - run: npx tsx --test --test-name-pattern="sports subsidy reallocates real workers" tests/scenarios.test.ts
