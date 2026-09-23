@@ -4,6 +4,7 @@ import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
 import {
   PHASES,
+  type DeepReadonly,
   type Effect,
   type Game,
   type Model,
@@ -53,7 +54,7 @@ function cloneGameForTrace(game: Game): Game {
 
 function traceRule(
   game: Game,
-  snapshot: Readonly<Model>,
+  snapshot: DeepReadonly<Model>,
   rule: Rule,
 ): RuleTrace {
   const random = (cell: number, channel = '') => {
