@@ -4,6 +4,10 @@ test('play, inspect, govern, save, reload, and complete a mandate', async ({ pag
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'A country in your hands.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const atlasMap = page.locator('#map');
+  const atlasBox = (await atlasMap.boundingBox())!;
+  await atlasMap.hover({ position: { x: atlasBox.width / 2, y: atlasBox.height / 2 } });
+  await expect(page.locator('#map-tooltip')).toContainText(/mountain|forest|farming|coastal|village|city|open country/);
   await page.screenshot({ path: 'test-results/commonwealth-desktop.png', fullPage: true });
   await page.getByLabel('Select a region').selectOption('1');
   await expect(page.locator('.inspector h2')).toContainText('mapxels selected');
