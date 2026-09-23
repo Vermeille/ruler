@@ -3,12 +3,10 @@ import { defaultRules } from '../sim/rules';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import {
   MUTABLE_FIELDS,
-  type Account,
   type DeepReadonly,
   type Effect,
   type Game,
   type Model,
-  type MutableField,
   type Rule,
 } from '../sim/types';
 
@@ -166,10 +164,6 @@ function words(value: string): string {
     .replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
-function accountLabel(account: Account): string {
-  return typeof account === 'number' ? `cell ${account}` : account;
-}
-
 function classifyModelRead(
   path: string,
   value: Scalar,
@@ -296,13 +290,7 @@ function trackedObject<T extends object>(
       const path = prefix ? `${prefix}.${String(property)}` : String(property);
 
       if (result !== null && typeof result === 'object') {
-        return trackedObject(
-          result as object,
-          path,
-          source,
-          reads,
-          model,
-        );
+        return trackedObject(result as object, path, source, reads, model);
       }
 
       if (typeof result === 'number' || typeof result === 'boolean' || typeof result === 'string') {
@@ -326,10 +314,12 @@ function runTrackedRule(
   rule: Rule,
 ): { effects: Effect[]; reads: ConcreteInput[] } {
   const reads = new Map<string, ConcreteInput>();
-  const model = deepFreeze(structuredClone(phase.before));
+  // The diagnostic proxy itself enforces read-only access. Freezing before
+  // proxying would violate Proxy invariants for nested object properties.
+  const model = structuredClone(phase.before);
   const trackedModel = trackedObject(model, '', 'model', reads, model);
   const trackedEvents = trackedObject(
-    Object.freeze({ ...game.lastEvents }),
+    { ...game.lastEvents },
     '',
     'lastEvents',
     reads,
@@ -466,9 +456,9 @@ function outputDifferences(
 }
 
 function getAtPath(root: unknown, path: string): unknown {
-  let cursor = root as Record<string, unknown>;
+  let cursor: unknown = root;
   for (const part of path.split('.')) {
-    cursor = cursor[part] as Record<string, unknown>;
+    cursor = (cursor as Record<string, unknown>)[part];
   }
   return cursor;
 }
