@@ -37,7 +37,7 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
   assert.ok(migration.outputs.some(output => output.key === 'transfer.cash'));
   assert.ok(migration.footprintFlows.length > 0);
 
-  const fiscal = analysisFor('state.fiscal').analysis;
+  const fiscal = analysisFor('state.services').analysis;
   assert.ok(fiscal.inputs.some(input => input.category === 'budget' || input.category === 'global'));
   assert.ok(fiscal.outputs.length > 0);
 });
