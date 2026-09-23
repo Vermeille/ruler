@@ -64,6 +64,29 @@ test('simulation workbench explains rules visually and preserves the forensic in
 
   await page.screenshot({ path: 'test-results/simulation-workbench.png', fullPage: true });
 
+  // Input nodes follow exact state paths back to their writer.
+  await graph.locator('.rule-graph-node-input').filter({ hasText: 'Cell Happiness' }).click();
+  await expect(page.getByRole('heading', { name: 'society', exact: true })).toBeVisible();
+  await expect(lens).toContainText('society.wellbeing');
+  await expect(page.locator('.phase-title-row')).toContainText('Followed this month producer');
+
+  // Same-month consumer nodes recenter directly on the downstream rule.
+  await phases.getByRole('button', { name: /migration/ }).click();
+  await graph.locator('.rule-graph-node-consumer').filter({ hasText: 'economy.labor' }).click();
+  await expect(page.getByRole('heading', { name: 'adaptation', exact: true })).toBeVisible();
+  await expect(lens).toContainText('economy.labor');
+
+  // Next-month consumers open the exact next preview tick rather than a lookalike current-tick rule.
+  await phases.getByRole('button', { name: /migration/ }).click();
+  const nextProduction = graph.locator('.rule-graph-node-consumer.next').filter({ hasText: 'economy.production' });
+  await expect(nextProduction).toBeVisible();
+  await nextProduction.click();
+  await expect(page.locator('.dev-panel-heading').first()).toContainText('Month 2');
+  await expect(page.getByRole('heading', { name: 'production', exact: true })).toBeVisible();
+  await expect(lens).toContainText('economy.production');
+  await expect(page.getByRole('button', { name: 'Return to month 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Return to month 1' }).click();
+
   await phases.getByRole('button', { name: /trade/ }).click();
   await expect(page.getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
   await expect(lens).toContainText('economy.neighbor-trade');
