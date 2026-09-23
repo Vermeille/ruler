@@ -26,20 +26,19 @@ export interface RuleConsumer {
   paths: InfluencePath[];
 }
 
+export interface RuleInfluence {
+  outputKey: string;
+  writtenPaths: InfluencePath[];
+  consumers: RuleConsumer[];
+}
+
 export interface RuleProducer {
   key: string;
   ruleId: string;
   phase: string;
   month: 'this month' | 'previous month';
-  self: boolean;
   strength: number;
   paths: InfluencePath[];
-}
-
-export interface RuleInfluence {
-  outputKey: string;
-  writtenPaths: InfluencePath[];
-  consumers: RuleConsumer[];
 }
 
 export interface RuleInputInfluence {
@@ -209,69 +208,6 @@ function matchingPaths(writes: readonly InfluencePath[], reads: ReadSet): Influe
   ));
 }
 
-function inputKeyMatchesRead(
-  inputKey: string,
-  source: InfluencePath['source'],
-  path: string,
-): boolean {
-  if (inputKey.startsWith('cell.')) {
-    if (source !== 'model') return false;
-    const field = inputKey.slice('cell.'.length);
-    return new RegExp(`^cells\\.\\d+\\.${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(path);
-  }
-
-  if (inputKey.startsWith('policy.')) {
-    return source === 'model' && path === inputKey;
-  }
-
-  if (inputKey.startsWith('budget.')) {
-    return source === 'model' && path === inputKey;
-  }
-
-  if (inputKey === 'localSubsidy.amount') {
-    return source === 'model' && /^localSubsidies\.\d+\.amount$/.test(path);
-  }
-
-  if (inputKey.startsWith('global.')) {
-    return source === 'model' && path === inputKey.slice('global.'.length);
-  }
-
-  if (inputKey.startsWith('lastEvent.')) {
-    return source === 'lastEvents' && path === inputKey.slice('lastEvent.'.length);
-  }
-
-  return false;
-}
-
-function readPathsForInput(
-  game: Game,
-  phase: PhaseTrace,
-  rule: Rule,
-  inputKey: string,
-): InfluencePath[] {
-  const reads = readSet(game, phase, rule);
-  const result: InfluencePath[] = [];
-
-  for (const path of reads.model) {
-    if (!inputKeyMatchesRead(inputKey, 'model', path)) continue;
-    result.push({ source: 'model', path, label: pathLabel(path, phase.before) });
-  }
-  for (const path of reads.lastEvents) {
-    if (!inputKeyMatchesRead(inputKey, 'lastEvents', path)) continue;
-    result.push({ source: 'lastEvents', path, label: `Last Event · ${words(path)}` });
-  }
-
-  return result;
-}
-
-function matchingWrites(
-  writes: readonly InfluencePath[],
-  reads: readonly InfluencePath[],
-): InfluencePath[] {
-  const readKeys = new Set(reads.map(read => `${read.source}:${read.path}`));
-  return writes.filter(write => readKeys.has(`${write.source}:${write.path}`));
-}
-
 function collectConsumers(
   game: Game,
   phases: readonly PhaseTrace[],
@@ -307,23 +243,61 @@ function collectConsumers(
   return consumers;
 }
 
+function inputGroupMatchesPath(inputKey: string, path: string): boolean {
+  if (inputKey.startsWith('cell.')) {
+    const field = inputKey.slice('cell.'.length);
+    return new RegExp(`^cells\\.\\d+\\.${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(path);
+  }
+  if (inputKey.startsWith('policy.')) return path === inputKey;
+  if (inputKey.startsWith('budget.')) return path === inputKey;
+  if (inputKey.startsWith('global.')) return path === inputKey.slice('global.'.length);
+  if (inputKey.startsWith('lastEvent.')) return path === inputKey.slice('lastEvent.'.length);
+  if (inputKey === 'localSubsidy.amount') return /^localSubsidies\.\d+\.amount$/.test(path);
+  return false;
+}
+
+function inputReadPaths(
+  game: Game,
+  phase: PhaseTrace,
+  ruleId: string,
+  inputKey: string,
+): InfluencePath[] {
+  const rule = defaultRules.find(candidate => candidate.id === ruleId);
+  if (!rule) return [];
+  const reads = readSet(game, phase, rule);
+  const paths: InfluencePath[] = [];
+
+  for (const path of reads.model) {
+    if (!inputGroupMatchesPath(inputKey, path)) continue;
+    paths.push({ source: 'model', path, label: pathLabel(path, phase.before) });
+  }
+  for (const path of reads.lastEvents) {
+    if (!inputGroupMatchesPath(inputKey, path)) continue;
+    paths.push({ source: 'lastEvents', path, label: `Last Event · ${words(path)}` });
+  }
+  return paths;
+}
+
+function ruleWrittenPaths(trace: PhaseTrace['rules'][number], model: Model): InfluencePath[] {
+  return writtenPaths(trace.effects, '', model);
+}
+
 function collectProducers(
   phases: readonly PhaseTrace[],
   reads: readonly InfluencePath[],
-  ruleId: string,
-  selectedPhaseIndex: number,
+  rulePhaseIndex: number,
 ): RuleProducer[] {
   const producers: RuleProducer[] = [];
 
   for (const phase of phases) {
     const phaseIndex = PHASES.indexOf(phase.phase);
-    const month: RuleProducer['month'] = phaseIndex < selectedPhaseIndex
-      ? 'this month'
-      : 'previous month';
+    const month: RuleProducer['month'] = phaseIndex < rulePhaseIndex ? 'this month' : 'previous month';
 
     for (const trace of phase.rules) {
-      const writes = writtenPaths(trace.effects, '', phase.before);
-      const matched = matchingWrites(writes, reads);
+      const writes = ruleWrittenPaths(trace, phase.before);
+      const matched = reads.filter(read => writes.some(write => (
+        write.source === read.source && write.path === read.path
+      )));
       if (!matched.length) continue;
 
       producers.push({
@@ -331,7 +305,6 @@ function collectProducers(
         ruleId: trace.id,
         phase: phase.phase,
         month,
-        self: trace.id === ruleId,
         strength: matched.length / Math.max(1, reads.length),
         paths: matched.slice(0, 6),
       });
@@ -392,12 +365,7 @@ export function analyzeRuleInputInfluence(
   ruleId: string,
   inputKey: string,
 ): RuleInputInfluence {
-  const rule = defaultRules.find(candidate => candidate.id === ruleId);
-  if (!rule || inputKey.startsWith('random.')) {
-    return { inputKey, readPaths: [], producers: [] };
-  }
-
-  const reads = readPathsForInput(game, phase, rule, inputKey);
+  const reads = inputReadPaths(game, phase, ruleId, inputKey);
   if (!reads.length) return { inputKey, readPaths: [], producers: [] };
 
   const baseline = traceStep(game);
@@ -405,11 +373,6 @@ export function analyzeRuleInputInfluence(
   return {
     inputKey,
     readPaths: reads,
-    producers: collectProducers(
-      baseline.phases,
-      reads,
-      ruleId,
-      phaseIndex,
-    ),
+    producers: collectProducers(baseline.phases, reads, phaseIndex),
   };
 }
