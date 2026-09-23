@@ -13,20 +13,36 @@ const props = defineProps<{
 
 const CELL_SIZE = 28;
 const analysis = computed(() => analyzeRule(props.game, props.phase, props.ruleId));
-const selectedMatrixKey = ref('');
 const selectedOutputKey = ref('');
+const selectedSensitivityKey = ref('');
 
-watch(analysis, next => {
-  selectedMatrixKey.value = next?.jacobian[0]?.key ?? '';
-  selectedOutputKey.value = next?.outputs[0]?.key ?? '';
-}, { immediate: true });
-
-const matrixCell = computed(() => (
-  analysis.value?.jacobian.find(cell => cell.key === selectedMatrixKey.value)
+const selectedOutput = computed(() => (
+  analysis.value?.outputs.find(output => output.key === selectedOutputKey.value)
 ));
+
+const inputRows = computed(() => {
+  const current = analysis.value;
+  if (!current) return [];
+
+  return current.inputs.map(input => ({
+    input,
+    sensitivity: current.jacobian.find(cell => (
+      cell.inputKey === input.key && cell.outputKey === selectedOutputKey.value
+    )),
+  })).sort((left, right) => (
+    (right.sensitivity?.strength ?? 0) - (left.sensitivity?.strength ?? 0)
+      || right.input.reads - left.input.reads
+  ));
+});
+
+const selectedSensitivity = computed(() => (
+  analysis.value?.jacobian.find(cell => cell.key === selectedSensitivityKey.value)
+));
+
 const footprintByCell = computed(() => new Map(
   analysis.value?.footprintCells.map(cell => [cell.id, cell]) ?? [],
 ));
+
 const visibleFlows = computed(() => {
   const flows = analysis.value?.footprintFlows ?? [];
   return selectedOutputKey.value
@@ -34,32 +50,32 @@ const visibleFlows = computed(() => {
     : flows;
 });
 
-function jacobianCell(inputKey: string, outputKey: string): JacobianCell | undefined {
-  return analysis.value?.jacobian.find(cell => (
-    cell.inputKey === inputKey && cell.outputKey === outputKey
-  ));
-}
+watch(analysis, next => {
+  selectedOutputKey.value = next?.outputs[0]?.key ?? '';
+}, { immediate: true });
 
-function matrixStyle(cell: JacobianCell | undefined): Record<string, string> {
-  if (!cell || cell.strength <= 0.001) return { backgroundColor: 'rgba(92, 105, 128, 0.08)' };
-  const alpha = 0.12 + cell.strength * 0.72;
-  const rgb = cell.sign === 'positive'
-    ? '75, 211, 163'
-    : cell.sign === 'negative'
-      ? '245, 112, 122'
-      : '180, 130, 255';
-  return { backgroundColor: `rgba(${rgb}, ${alpha})` };
+watch([analysis, selectedOutputKey], () => {
+  selectedSensitivityKey.value = inputRows.value
+    .find(row => row.sensitivity)?.sensitivity?.key ?? '';
+}, { immediate: true });
+
+function sensitivityWidth(cell: JacobianCell | undefined): string {
+  if (!cell) return '0%';
+  return `${Math.max(2, cell.strength * 100)}%`;
 }
 
 function heatColor(id: number): string {
   const cell = props.phase.before.cells[id];
   if (cell.biome === 'water') return 'hsl(218 24% 11%)';
+
   const footprint = footprintByCell.value.get(id);
   if (!footprint) return 'hsl(219 19% 17%)';
-  const selected = !selectedOutputKey.value || footprint.outputKeys.includes(selectedOutputKey.value);
-  const strength = selected ? footprint.score : footprint.score * 0.12;
-  const lightness = 22 + strength * 38;
-  const saturation = 24 + strength * 48;
+
+  const selected = !selectedOutputKey.value
+    || footprint.outputKeys.includes(selectedOutputKey.value);
+  const strength = selected ? footprint.score : footprint.score * 0.08;
+  const lightness = 21 + strength * 43;
+  const saturation = 25 + strength * 52;
   return `hsl(187 ${saturation}% ${lightness}%)`;
 }
 
@@ -72,16 +88,22 @@ function center(id: number): { x: number; y: number } {
 }
 
 function flowWidth(score: number): number {
-  return 0.8 + Math.sqrt(score) * 5.2;
+  return 0.9 + Math.sqrt(score) * 5.6;
 }
 
 function flowOpacity(score: number): number {
-  return 0.25 + Math.sqrt(score) * 0.7;
+  return 0.35 + Math.sqrt(score) * 0.65;
+}
+
+function cellName(id: number): string {
+  return props.phase.before.cells[id]?.name ?? `cell ${id}`;
 }
 
 function formatMagnitude(value: number): string {
   if (value === 0) return '0';
-  if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  }
   if (Math.abs(value) >= 1) return value.toFixed(2);
   if (Math.abs(value) >= 0.01) return value.toFixed(4);
   return value.toExponential(2);
@@ -93,10 +115,9 @@ function formatRelative(value: number): string {
   return `${(value * 100).toFixed(value < 0.01 ? 2 : 1)}%`;
 }
 
-function selectMatrix(cell: JacobianCell | undefined): void {
+function selectSensitivity(cell: JacobianCell | undefined): void {
   if (!cell) return;
-  selectedMatrixKey.value = cell.key;
-  selectedOutputKey.value = cell.outputKey;
+  selectedSensitivityKey.value = cell.key;
 }
 </script>
 
@@ -115,76 +136,87 @@ function selectMatrix(cell: JacobianCell | undefined): void {
       </div>
     </header>
 
-    <section class="jacobian-card">
+    <nav v-if="analysis.outputs.length" class="rule-output-strip" aria-label="Rule outputs">
+      <span class="output-strip-label">OUTPUT</span>
+      <button
+        v-for="output in analysis.outputs"
+        :key="output.key"
+        :class="{ active: selectedOutputKey === output.key }"
+        @click="selectedOutputKey = output.key"
+      >
+        <span>{{ output.label }}</span>
+        <strong>{{ formatMagnitude(output.magnitude) }}</strong>
+        <small>{{ output.effects }} channels</small>
+      </button>
+    </nav>
+
+    <section class="sensitivity-card">
       <div class="lens-section-heading">
         <div>
-          <span class="dev-kicker">LOCAL JACOBIAN</span>
-          <h4>Which inputs matter to which outputs, here?</h4>
+          <span class="dev-kicker">LOCAL SENSITIVITY</span>
+          <h4 v-if="selectedOutput">What drives {{ selectedOutput.label }} here?</h4>
+          <h4 v-else>What did this rule read before emitting nothing?</h4>
         </div>
-        <p>Each column is normalized to its strongest local input. Intensity is sensitivity; hue is direction.</p>
+        <p v-if="selectedOutput">
+          A small local nudge is applied to sampled reads, then the same rule runs again.
+          Bars are relative to the strongest input for this output.
+        </p>
+        <p v-else>
+          The rule emitted no effects in this state. Its actual reads are still shown so thresholds and inactive branches remain visible.
+        </p>
       </div>
 
-      <div class="jacobian-scroll">
-        <div
-          class="jacobian-grid"
-          :style="{ gridTemplateColumns: `minmax(180px, 1.4fr) repeat(${analysis.outputs.length}, minmax(86px, 1fr))` }"
+      <div class="sensitivity-list" :class="{ inactive: !selectedOutput }">
+        <button
+          v-for="row in inputRows"
+          :key="row.input.key"
+          class="sensitivity-row"
+          :class="{
+            active: selectedSensitivityKey === row.sensitivity?.key,
+            inert: !row.sensitivity,
+          }"
+          @click="selectSensitivity(row.sensitivity)"
         >
-          <div class="jacobian-corner">actual reads</div>
-          <button
-            v-for="output in analysis.outputs"
-            :key="`head-${output.key}`"
-            class="output-head"
-            :class="{ active: selectedOutputKey === output.key }"
-            @click="selectedOutputKey = output.key"
-          >
-            <strong>{{ output.label }}</strong>
-            <small>{{ output.effects }} channels</small>
-          </button>
-
-          <template v-for="input in analysis.inputs" :key="input.key">
-            <div class="input-head">
-              <strong>{{ input.label }}</strong>
-              <small>{{ input.reads }} reads · {{ input.analyzed }} sampled</small>
-            </div>
-            <button
-              v-for="output in analysis.outputs"
-              :key="`${input.key}:${output.key}`"
-              class="jacobian-tile"
-              :class="{ active: selectedMatrixKey === `${input.key}→${output.key}` }"
-              :style="matrixStyle(jacobianCell(input.key, output.key))"
-              :aria-label="`${input.label} sensitivity to ${output.label}`"
-              @click="selectMatrix(jacobianCell(input.key, output.key))"
-            >
-              <span v-if="jacobianCell(input.key, output.key)">
-                {{ Math.round((jacobianCell(input.key, output.key)?.strength ?? 0) * 100) }}
-              </span>
-              <span v-else>·</span>
-            </button>
-          </template>
-        </div>
+          <div class="sensitivity-label">
+            <strong>{{ row.input.label }}</strong>
+            <small>{{ row.input.reads }} reads · {{ row.input.analyzed }} sampled</small>
+          </div>
+          <div class="sensitivity-bar" aria-hidden="true">
+            <i
+              v-if="row.sensitivity"
+              :class="row.sensitivity.sign"
+              :style="{ width: sensitivityWidth(row.sensitivity) }"
+            />
+          </div>
+          <div class="sensitivity-score">
+            <strong v-if="row.sensitivity">{{ Math.round(row.sensitivity.strength * 100) }}</strong>
+            <span v-else>0</span>
+          </div>
+        </button>
       </div>
 
-      <div v-if="matrixCell" class="jacobian-detail">
+      <div v-if="selectedSensitivity" class="sensitivity-detail">
         <div>
-          <span class="dev-kicker">STRONGEST LOCAL EXAMPLE</span>
-          <strong>{{ matrixCell.example }}</strong>
-          <small>{{ matrixCell.nudge }}</small>
+          <span class="dev-kicker">CONCRETE READ</span>
+          <strong>{{ selectedSensitivity.example }}</strong>
+          <small>{{ selectedSensitivity.nudge }}</small>
         </div>
-        <div class="jacobian-arrow">→</div>
+        <div class="causal-arrow">→</div>
         <div>
           <span class="dev-kicker">OUTPUT RESPONSE</span>
-          <strong>{{ analysis.outputs.find(output => output.key === matrixCell?.outputKey)?.label }}</strong>
+          <strong>{{ selectedOutput?.label }}</strong>
           <small>
-            Δ {{ formatMagnitude(matrixCell.response) }} · local derivative {{ formatMagnitude(matrixCell.derivative) }}
+            Δ {{ formatMagnitude(selectedSensitivity.response) }} · raw local derivative
+            {{ formatMagnitude(selectedSensitivity.derivative) }}
           </small>
         </div>
       </div>
 
-      <div class="matrix-legend">
+      <div class="sensitivity-legend">
         <span><i class="positive" /> increases output</span>
         <span><i class="negative" /> decreases output</span>
-        <span><i class="mixed" /> mixed directions across channels</span>
-        <span>0–100 = relative sensitivity within that output column</span>
+        <span><i class="mixed" /> mixed direction across concrete channels</span>
+        <span><strong>100</strong> = strongest sampled local input for this output</span>
       </div>
     </section>
 
@@ -192,44 +224,45 @@ function selectMatrix(cell: JacobianCell | undefined): void {
       <div class="lens-section-heading">
         <div>
           <span class="dev-kicker">SPATIAL FOOTPRINT</span>
-          <h4>Where does this rule act?</h4>
+          <h4>Where does {{ selectedOutput?.label ?? 'this rule' }} act?</h4>
         </div>
-        <div class="output-pills">
-          <button
-            v-for="output in analysis.outputs"
-            :key="`pill-${output.key}`"
-            :class="{ active: selectedOutputKey === output.key }"
-            @click="selectedOutputKey = output.key"
-          >
-            {{ output.label }}
-          </button>
-        </div>
+        <p>
+          Cell intensity is relative effect activity. Cell-to-cell transfers and trades add directional arrows automatically.
+        </p>
       </div>
 
-      <div class="footprint-layout">
+      <div class="footprint-map-shell" :style="{ aspectRatio: `${phase.before.width} / ${phase.before.height}` }">
+        <div
+          class="footprint-cell-grid"
+          :style="{
+            gridTemplateColumns: `repeat(${phase.before.width}, 1fr)`,
+            gridTemplateRows: `repeat(${phase.before.height}, 1fr)`,
+          }"
+        >
+          <div
+            v-for="cell in phase.before.cells"
+            :key="cell.id"
+            class="footprint-cell-block"
+            :class="{ water: cell.biome === 'water' }"
+            :style="{
+              gridColumn: cell.x + 1,
+              gridRow: cell.y + 1,
+              backgroundColor: heatColor(cell.id),
+            }"
+            :title="cell.name"
+          />
+        </div>
+
         <svg
-          class="rule-footprint-map"
+          class="footprint-flow-overlay"
           :viewBox="`0 0 ${phase.before.width * CELL_SIZE} ${phase.before.height * CELL_SIZE}`"
-          role="img"
-          :aria-label="`${analysis.ruleId} spatial footprint`"
+          aria-hidden="true"
         >
           <defs>
             <marker id="rule-flow-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" />
             </marker>
           </defs>
-          <rect
-            v-for="cell in phase.before.cells"
-            :key="cell.id"
-            :x="cell.x * CELL_SIZE + 1"
-            :y="cell.y * CELL_SIZE + 1"
-            :width="CELL_SIZE - 2"
-            :height="CELL_SIZE - 2"
-            :fill="heatColor(cell.id)"
-            class="footprint-cell"
-          >
-            <title>{{ cell.name }}</title>
-          </rect>
           <line
             v-for="flow in visibleFlows"
             :key="flow.key"
@@ -241,25 +274,26 @@ function selectMatrix(cell: JacobianCell | undefined): void {
             :opacity="flowOpacity(flow.score)"
             class="footprint-flow"
             marker-end="url(#rule-flow-arrow)"
-          >
-            <title>{{ flow.label }} · {{ formatMagnitude(flow.amount) }}</title>
-          </line>
+          />
         </svg>
+      </div>
 
-        <div class="output-summary-list">
-          <button
-            v-for="output in analysis.outputs"
-            :key="`summary-${output.key}`"
-            :class="{ active: selectedOutputKey === output.key }"
-            @click="selectedOutputKey = output.key"
-          >
-            <span>{{ output.label }}</span>
-            <strong>{{ formatMagnitude(output.magnitude) }}</strong>
-            <small>{{ output.effects }} concrete channels</small>
-          </button>
+      <div v-if="visibleFlows.length" class="flow-ranking">
+        <div
+          v-for="flow in visibleFlows.slice(0, 8)"
+          :key="`rank-${flow.key}`"
+          class="flow-rank-row"
+        >
+          <span>{{ cellName(flow.from) }}</span>
+          <i>→</i>
+          <span>{{ cellName(flow.to) }}</span>
+          <strong>{{ formatMagnitude(flow.amount) }}</strong>
         </div>
       </div>
-      <p class="lens-note">Heat shows relative activity by mapxel. Arrows appear automatically for cell-to-cell transfers and trades; delta-only and national rules remain heatmaps/cards instead of being forced into fake geography.</p>
+
+      <p v-if="!analysis.footprintCells.length" class="lens-note">
+        This output has no mapxel-local footprint. National budget/account effects remain national instead of being assigned fake geography.
+      </p>
     </section>
 
     <section class="downstream-card">
@@ -268,7 +302,9 @@ function selectMatrix(cell: JacobianCell | undefined): void {
           <span class="dev-kicker">COUNTERFACTUAL PROPAGATION</span>
           <h4>What stops happening if this rule does not run once?</h4>
         </div>
-        <p>The same world is simulated twice. Only this execution of <code>{{ analysis.ruleId }}</code> is removed; later rules run normally.</p>
+        <p>
+          The same world is simulated twice. Only this execution of <code>{{ analysis.ruleId }}</code> is removed; later rules run normally.
+        </p>
       </div>
 
       <div class="downstream-track">
