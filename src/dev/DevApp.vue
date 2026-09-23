@@ -175,7 +175,6 @@ function inspectAndFilterRule(ruleId: string): void {
 function navigateToRule(target: {
   ruleId: string;
   phase: string;
-  monthDelta: number;
   via: string;
 }): void {
   const phaseIndex = trace.value.phases.findIndex(phase => phase.phase === target.phase);
