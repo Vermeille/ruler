@@ -26,10 +26,26 @@ export interface RuleConsumer {
   paths: InfluencePath[];
 }
 
+export interface RuleProducer {
+  key: string;
+  ruleId: string;
+  phase: string;
+  month: 'this month' | 'previous month';
+  self: boolean;
+  strength: number;
+  paths: InfluencePath[];
+}
+
 export interface RuleInfluence {
   outputKey: string;
   writtenPaths: InfluencePath[];
   consumers: RuleConsumer[];
+}
+
+export interface RuleInputInfluence {
+  inputKey: string;
+  readPaths: InfluencePath[];
+  producers: RuleProducer[];
 }
 
 interface ReadSet {
@@ -193,6 +209,69 @@ function matchingPaths(writes: readonly InfluencePath[], reads: ReadSet): Influe
   ));
 }
 
+function inputKeyMatchesRead(
+  inputKey: string,
+  source: InfluencePath['source'],
+  path: string,
+): boolean {
+  if (inputKey.startsWith('cell.')) {
+    if (source !== 'model') return false;
+    const field = inputKey.slice('cell.'.length);
+    return new RegExp(`^cells\\.\\d+\\.${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(path);
+  }
+
+  if (inputKey.startsWith('policy.')) {
+    return source === 'model' && path === inputKey;
+  }
+
+  if (inputKey.startsWith('budget.')) {
+    return source === 'model' && path === inputKey;
+  }
+
+  if (inputKey === 'localSubsidy.amount') {
+    return source === 'model' && /^localSubsidies\.\d+\.amount$/.test(path);
+  }
+
+  if (inputKey.startsWith('global.')) {
+    return source === 'model' && path === inputKey.slice('global.'.length);
+  }
+
+  if (inputKey.startsWith('lastEvent.')) {
+    return source === 'lastEvents' && path === inputKey.slice('lastEvent.'.length);
+  }
+
+  return false;
+}
+
+function readPathsForInput(
+  game: Game,
+  phase: PhaseTrace,
+  rule: Rule,
+  inputKey: string,
+): InfluencePath[] {
+  const reads = readSet(game, phase, rule);
+  const result: InfluencePath[] = [];
+
+  for (const path of reads.model) {
+    if (!inputKeyMatchesRead(inputKey, 'model', path)) continue;
+    result.push({ source: 'model', path, label: pathLabel(path, phase.before) });
+  }
+  for (const path of reads.lastEvents) {
+    if (!inputKeyMatchesRead(inputKey, 'lastEvents', path)) continue;
+    result.push({ source: 'lastEvents', path, label: `Last Event · ${words(path)}` });
+  }
+
+  return result;
+}
+
+function matchingWrites(
+  writes: readonly InfluencePath[],
+  reads: readonly InfluencePath[],
+): InfluencePath[] {
+  const readKeys = new Set(reads.map(read => `${read.source}:${read.path}`));
+  return writes.filter(write => readKeys.has(`${write.source}:${write.path}`));
+}
+
 function collectConsumers(
   game: Game,
   phases: readonly PhaseTrace[],
@@ -226,6 +305,44 @@ function collectConsumers(
   });
 
   return consumers;
+}
+
+function collectProducers(
+  phases: readonly PhaseTrace[],
+  reads: readonly InfluencePath[],
+  ruleId: string,
+  selectedPhaseIndex: number,
+): RuleProducer[] {
+  const producers: RuleProducer[] = [];
+
+  for (const phase of phases) {
+    const phaseIndex = PHASES.indexOf(phase.phase);
+    const month: RuleProducer['month'] = phaseIndex < selectedPhaseIndex
+      ? 'this month'
+      : 'previous month';
+
+    for (const trace of phase.rules) {
+      const writes = writtenPaths(trace.effects, '', phase.before);
+      const matched = matchingWrites(writes, reads);
+      if (!matched.length) continue;
+
+      producers.push({
+        key: `${month}:${trace.id}`,
+        ruleId: trace.id,
+        phase: phase.phase,
+        month,
+        self: trace.id === ruleId,
+        strength: matched.length / Math.max(1, reads.length),
+        paths: matched.slice(0, 6),
+      });
+    }
+  }
+
+  return producers.sort((left, right) => (
+    Number(left.month === 'previous month') - Number(right.month === 'previous month')
+      || right.strength - left.strength
+      || left.ruleId.localeCompare(right.ruleId)
+  ));
 }
 
 export function analyzeRuleInfluence(
@@ -266,5 +383,33 @@ export function analyzeRuleInfluence(
     outputKey,
     writtenPaths: writes,
     consumers,
+  };
+}
+
+export function analyzeRuleInputInfluence(
+  game: Game,
+  phase: PhaseTrace,
+  ruleId: string,
+  inputKey: string,
+): RuleInputInfluence {
+  const rule = defaultRules.find(candidate => candidate.id === ruleId);
+  if (!rule || inputKey.startsWith('random.')) {
+    return { inputKey, readPaths: [], producers: [] };
+  }
+
+  const reads = readPathsForInput(game, phase, rule, inputKey);
+  if (!reads.length) return { inputKey, readPaths: [], producers: [] };
+
+  const baseline = traceStep(game);
+  const phaseIndex = PHASES.indexOf(phase.phase);
+  return {
+    inputKey,
+    readPaths: reads,
+    producers: collectProducers(
+      baseline.phases,
+      reads,
+      ruleId,
+      phaseIndex,
+    ),
   };
 }
