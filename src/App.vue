@@ -9,7 +9,7 @@ import SimulationControls from './components/SimulationControls.vue';
 import CauseDialog from './components/dialogs/CauseDialog.vue';
 import HelpDialog from './components/dialogs/HelpDialog.vue';
 import NewCountryDialog from './components/dialogs/NewCountryDialog.vue';
-import PolicyPreviewDialog, { type PolicyPreviewData } from './components/dialogs/PolicyPreviewDialog.vue';
+import PolicyPreviewDialog from './components/dialogs/PolicyPreviewDialog.vue';
 import ReportDialog from './components/dialogs/ReportDialog.vue';
 import SaveDialog from './components/dialogs/SaveDialog.vue';
 import { useGame } from './composables/useGame';
@@ -17,6 +17,7 @@ import { enact, previewActions } from './sim/policy';
 import type { Action, Game } from './sim/types';
 import { download } from './ui/download';
 import { formatPercent } from './ui/format';
+import type { PolicyPreviewData } from './ui/view-types';
 
 type ModalState =
   | { kind: 'help' }
@@ -207,6 +208,7 @@ onBeforeUnmount(() => {
           :zoom="zoom"
           :roads="roads"
           :running="running"
+          :dark-mode="darkMode"
           @select="setSelection"
           @update:layer="layer = $event"
           @update:zoom="zoom = $event"
