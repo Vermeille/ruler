@@ -1,27 +1,32 @@
 import { clamp } from '../sim/math';
 import type { Game, Mapxel } from '../sim/types';
 import { deriveMapActivity, type ActivityTone } from './map-activity';
+import {
+  ALL_LAYERS,
+  LAYERS,
+  isHeatmapLayer,
+  type HeatmapLayer,
+  type Layer,
+} from './map-layers';
 
-export type Layer = 'terrain' | 'approval' | 'wealth' | 'foodSecurity' | 'crime' | 'population' | 'pollution' | 'industry';
-export const LAYERS: { id: Layer; name: string; low: string; high: string }[] = [
-  { id: 'terrain', name: 'Landscape', low: 'Plains · forests · highlands', high: '' },
-  { id: 'approval', name: 'Public approval', low: '0% approval', high: '100%' },
-  { id: 'wealth', name: 'Prosperity', low: '₡0 / resident', high: '₡70+' },
-  { id: 'foodSecurity', name: 'Food access', low: 'Unmet needs', high: 'Fully fed' },
-  { id: 'crime', name: 'Crime pressure', low: 'Low pressure', high: 'High pressure' },
-  { id: 'population', name: 'Population', low: 'Sparse', high: 'Dense' },
-  { id: 'pollution', name: 'Pollution', low: 'Clean', high: 'Polluted' },
-  { id: 'industry', name: 'Local economy', low: 'Farms · factories · services · sports', high: '' },
-];
+export { ALL_LAYERS, LAYERS, type Layer } from './map-layers';
+
 export const SECTOR_COLORS = { agriculture: '#b6c785', manufacturing: '#b2a391', services: '#78a9a3', sports: '#cc9b75' };
 const terrainColors = { water: '#e7efed', plain: '#cbd7ad', forest: '#91b296', hill: '#b6b7a0', city: '#748e7d' };
 const darkTerrainColors = { water: '#172a30', plain: '#53634b', forest: '#355b49', hill: '#625f4d', city: '#40574c' };
+const sectors = ['agriculture', 'manufacturing', 'services', 'sports'] as const;
 const mix = (a: number[], b: number[], t: number) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * clamp(t))).join(',')})`;
 
-function color(c: Mapxel, layer: Layer): string {
-  const dark = document.body.classList.contains('dark-mode');
-  if (layer === 'terrain') return (dark ? darkTerrainColors : terrainColors)[c.biome];
-  if (layer === 'industry') return SECTOR_COLORS[(['agriculture', 'manufacturing', 'services', 'sports'] as const).reduce((a, b) => c[a] > c[b] ? a : b)];
+function dominantSector(c: Mapxel): typeof sectors[number] {
+  return sectors.reduce((a, b) => c[a] > c[b] ? a : b);
+}
+
+function terrainColor(c: Mapxel, dark: boolean): string {
+  return (dark ? darkTerrainColors : terrainColors)[c.biome];
+}
+
+function heatmapColor(c: Mapxel, layer: HeatmapLayer, dark: boolean): string {
+  if (layer === 'industry') return SECTOR_COLORS[dominantSector(c)];
   const value = layer === 'wealth' ? c.cash / c.population / 70 : layer === 'population' ? c.population / 850 : c[layer];
   return layer === 'crime' || layer === 'pollution'
     ? mix(dark ? [52, 78, 59] : [205, 221, 194], dark ? [194, 87, 72] : [173, 79, 65], value)
@@ -37,7 +42,7 @@ function toneColor(tone: ActivityTone, dark: boolean): string {
 export interface MapOptions {
   game: Game;
   selected: Set<number>;
-  layer: Layer;
+  layers: Layer[];
   zoom: number;
   roads: boolean;
   running: boolean;
@@ -46,9 +51,13 @@ export interface MapOptions {
 
 export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () => void {
   const ctx = canvas.getContext('2d')!, m = options.game.model;
-  const activity = deriveMapActivity(options.game);
+  const visibleLayers = new Set<Layer>(options.layers);
+  const activity = deriveMapActivity(options.game, visibleLayers);
+  const heatmapLayers = options.layers.filter(isHeatmapLayer);
+  const focusedHeatmap = heatmapLayers.length === 1 ? heatmapLayers[0] : undefined;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const activityStartedAt = performance.now();
+  const animatedActivity = activity.foodFlows.length > 0 || activity.markers.length > 0;
   let animationFrame = 0;
   let lastAnimationFrame = 0;
   let cellSize = 1, ox = 0, oy = 0, start: { x: number; y: number } | undefined, hover: Mapxel | undefined;
@@ -57,6 +66,60 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
   const coords = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   const at = ({ x, y }: { x: number; y: number }) => { const cx = Math.floor((x - ox) / cellSize), cy = Math.floor((y - oy) / cellSize); return cx >= 0 && cy >= 0 && cx < m.width && cy < m.height ? m.cells[cy * m.width + cx] : undefined; };
   const center = (c: Mapxel) => ({ x: ox + (c.x + .5) * cellSize, y: oy + (c.y + .5) * cellSize });
+
+  function drawSummaryLayers(c: Mapxel, x: number, y: number, dark: boolean): void {
+    if (visibleLayers.has('pollution') && c.pollution > .08) {
+      ctx.fillStyle = dark
+        ? `rgba(143,132,108,${c.pollution * .13})`
+        : `rgba(98,104,82,${c.pollution * .11})`;
+      ctx.fillRect(x, y, cellSize, cellSize);
+    }
+
+    if (visibleLayers.has('population')) {
+      const density = clamp(c.population / 850);
+      const radius = .7 + Math.sqrt(density) * Math.min(3.2, cellSize * .13);
+      ctx.beginPath(); ctx.arc(x + cellSize * .5, y + cellSize * .5, radius, 0, Math.PI * 2);
+      ctx.fillStyle = dark ? `rgba(222,229,218,${.18 + density * .22})` : `rgba(40,72,57,${.12 + density * .19})`;
+      ctx.fill();
+    }
+
+    if (visibleLayers.has('approval')) {
+      const approvalColor = c.approval >= .5
+        ? (dark ? 'rgba(128,194,139,.72)' : 'rgba(53,111,76,.62)')
+        : (dark ? 'rgba(220,154,123,.72)' : 'rgba(167,110,80,.62)');
+      ctx.fillStyle = approvalColor;
+      ctx.fillRect(x + 1, y + cellSize - 2.2, Math.max(1, (cellSize - 2) * c.approval), 1.4);
+    }
+
+    if (visibleLayers.has('wealth')) {
+      const wealth = clamp(c.cash / Math.max(1, c.population) / 70);
+      ctx.beginPath(); ctx.arc(x + 2.8, y + 2.8, .8 + wealth * 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = dark ? `rgba(232,203,122,${.28 + wealth * .4})` : `rgba(135,99,33,${.22 + wealth * .4})`;
+      ctx.fill();
+    }
+
+    if (visibleLayers.has('foodSecurity') && c.foodSecurity < .94) {
+      const pressure = clamp((.94 - c.foodSecurity) / .45);
+      ctx.fillStyle = dark ? `rgba(230,154,123,${.3 + pressure * .5})` : `rgba(166,79,66,${.25 + pressure * .5})`;
+      ctx.fillRect(x, y + cellSize * (1 - pressure), 1.7, Math.max(2, cellSize * pressure));
+    }
+
+    if (visibleLayers.has('crime') && c.crime > .16) {
+      const pressure = clamp((c.crime - .16) / .5);
+      ctx.strokeStyle = dark ? `rgba(238,151,125,${.3 + pressure * .55})` : `rgba(155,65,55,${.28 + pressure * .55})`;
+      ctx.lineWidth = 1 + pressure;
+      ctx.beginPath();
+      ctx.moveTo(x + cellSize - 1.5, y + 1.5);
+      ctx.lineTo(x + cellSize - 1.5 - Math.min(5, cellSize * .28), y + 1.5 + Math.min(5, cellSize * .28));
+      ctx.stroke();
+    }
+
+    if (visibleLayers.has('industry')) {
+      ctx.fillStyle = SECTOR_COLORS[dominantSector(c)];
+      const size = Math.max(1.8, Math.min(3.2, cellSize * .16));
+      ctx.fillRect(x + cellSize - size - 1, y + cellSize - size - 1, size, size);
+    }
+  }
 
   function drawFoodFlows(now: number, dark: boolean): void {
     ctx.save();
@@ -104,7 +167,7 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
       const radius = Math.max(6.2, Math.min(9.5, cellSize * .34));
       const x = p.x + cellSize * .18, y = p.y + cellSize * .16 + bob;
 
-      if (marker.glyph === '≋' && !reducedMotion) {
+      if (marker.layer === 'pollution' && !reducedMotion) {
         for (let i = 0; i < 2; i += 1) {
           const t = (now / 1800 + marker.phase + i * .46) % 1;
           ctx.beginPath();
@@ -128,6 +191,33 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
     }
   }
 
+  function tooltipText(c: Mapxel): string {
+    const labels = activity.labelsByCell.get(c.id) ?? [];
+    const parts = [c.name];
+    const overview = visibleLayers.size === ALL_LAYERS.length;
+
+    if (overview) {
+      parts.push(
+        `${Math.round(c.population).toLocaleString()} residents`,
+        `${Math.round(c.approval * 100)}% approval`,
+        `₡${(c.cash / Math.max(1, c.population)).toFixed(0)} / resident`,
+      );
+    } else {
+      for (const layer of options.layers) {
+        if (layer === 'approval') parts.push(`${Math.round(c.approval * 100)}% approval`);
+        else if (layer === 'wealth') parts.push(`₡${(c.cash / Math.max(1, c.population)).toFixed(1)} / resident`);
+        else if (layer === 'foodSecurity') parts.push(`${Math.round(c.foodSecurity * 100)}% food needs met`);
+        else if (layer === 'crime') parts.push(`${Math.round(c.crime * 100)}% crime pressure`);
+        else if (layer === 'population') parts.push(`${Math.round(c.population).toLocaleString()} residents`);
+        else if (layer === 'pollution') parts.push(`${Math.round(c.pollution * 100)}% pollution`);
+        else if (layer === 'industry') parts.push(`${dominantSector(c)} economy`);
+      }
+    }
+
+    parts.push(...labels);
+    return parts.join(' · ');
+  }
+
   function draw(now = performance.now()): void {
     const dark = document.body.classList.contains('dark-mode');
     const rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -147,8 +237,13 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
     for (const c of m.cells) {
       if (c.biome === 'water') continue;
       const x = ox + c.x * cellSize, y = oy + c.y * cellSize;
-      ctx.fillStyle = color(c, options.layer); ctx.fillRect(x, y, cellSize + .2, cellSize + .2);
-      if (options.layer === 'terrain') { ctx.fillStyle = dark ? `rgba(255,255,255,${(c.fertility % .1) * .28})` : `rgba(255,255,255,${(c.fertility % .1) * .85})`; ctx.fillRect(x, y, cellSize, cellSize); }
+      ctx.fillStyle = focusedHeatmap ? heatmapColor(c, focusedHeatmap, dark) : terrainColor(c, dark);
+      ctx.fillRect(x, y, cellSize + .2, cellSize + .2);
+      if (!focusedHeatmap) {
+        ctx.fillStyle = dark ? `rgba(255,255,255,${(c.fertility % .1) * .2})` : `rgba(255,255,255,${(c.fertility % .1) * .55})`;
+        ctx.fillRect(x, y, cellSize, cellSize);
+        drawSummaryLayers(c, x, y, dark);
+      }
       ctx.strokeStyle = 'rgba(40,72,53,.045)'; ctx.lineWidth = .5; ctx.strokeRect(x, y, cellSize, cellSize);
       ctx.strokeStyle = 'rgba(62,91,69,.28)'; ctx.lineWidth = 1;
       for (const [dx, dy, x1, y1, x2, y2] of [[-1, 0, x, y, x, y + cellSize], [1, 0, x + cellSize, y, x + cellSize, y + cellSize], [0, -1, x, y, x + cellSize, y], [0, 1, x, y + cellSize, x + cellSize, y + cellSize]]) {
@@ -165,7 +260,6 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
       }
     }
 
-    // Label one center for each city, even when its urban area spans several mapxels.
     const names = new Set<string>();
     for (const c of [...m.cells].sort((a, b) => b.population - a.population)) if (c.biome === 'city' && !names.has(c.name)) {
       names.add(c.name); const x = ox + (c.x + .5) * cellSize, y = oy + (c.y + .5) * cellSize;
@@ -190,16 +284,14 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
       lastAnimationFrame = now;
     }
     const freshEventPulse = activity.events.length > 0 && now - activityStartedAt < 2600;
-    if (!reducedMotion && (options.running || freshEventPulse)) animationFrame = requestAnimationFrame(animate);
+    if (!reducedMotion && ((options.running && animatedActivity) || freshEventPulse)) animationFrame = requestAnimationFrame(animate);
   }
 
   canvas.onpointerdown = e => { start = coords(e); pointer = start; canvas.setPointerCapture(e.pointerId); };
   canvas.onpointermove = e => {
     pointer = coords(e); hover = at(pointer);
     if (hover && hover.biome !== 'water' && !start) {
-      const labels = activity.labelsByCell.get(hover.id) ?? [];
-      const signals = labels.length ? ` · ${labels.join(' · ')}` : '';
-      tooltip.textContent = `${hover.name} · ${Math.round(hover.population).toLocaleString()} residents · ${Math.round(hover.approval * 100)}% approval${signals}`;
+      tooltip.textContent = tooltipText(hover);
       tooltip.style.display = 'block'; tooltip.style.left = `${Math.min(pointer.x + 12, canvas.clientWidth - 260)}px`; tooltip.style.top = `${Math.max(8, pointer.y - 36)}px`;
     } else tooltip.style.display = 'none';
     redraw();
@@ -213,7 +305,8 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
   canvas.onpointercancel = () => { start = undefined; pointer = undefined; redraw(); };
   canvas.onpointerleave = () => { hover = undefined; tooltip.style.display = 'none'; if (!start) redraw(); };
   const observer = new ResizeObserver(redraw); observer.observe(canvas); redraw();
-  if (!reducedMotion && (options.running || activity.events.length > 0)) animationFrame = requestAnimationFrame(animate);
+  const freshEvents = activity.events.length > 0;
+  if (!reducedMotion && ((options.running && animatedActivity) || freshEvents)) animationFrame = requestAnimationFrame(animate);
 
   return () => {
     observer.disconnect();
