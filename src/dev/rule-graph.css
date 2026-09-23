@@ -11,6 +11,12 @@
   overflow: hidden;
 }
 
+.rule-graph-card.variable-centered {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(180, 130, 255, 0.1), transparent 22rem),
+    rgba(7, 11, 20, 0.8);
+}
+
 .rule-graph-heading {
   margin-bottom: 10px;
 }
@@ -55,6 +61,10 @@
   filter: drop-shadow(0 0 5px rgba(109, 220, 236, 0.3));
 }
 
+.variable-centered .rule-graph-edge-input {
+  opacity: 0.84;
+}
+
 .rule-graph-edge-consumer.next {
   stroke-dasharray: 6 4;
 }
@@ -74,7 +84,9 @@
 }
 
 .rule-graph-node-input,
-.rule-graph-node-output {
+.rule-graph-node-output,
+.rule-graph-node-consumer,
+.rule-graph-node-variable {
   cursor: pointer;
 }
 
@@ -87,6 +99,8 @@
 
 .rule-graph-node-input:hover rect,
 .rule-graph-node-output:hover rect,
+.rule-graph-node-consumer:hover rect,
+.rule-graph-node-variable:hover rect,
 .rule-graph-node-input.selected rect,
 .rule-graph-node-output.selected rect {
   fill: #142536;
@@ -95,8 +109,7 @@
 }
 
 .rule-graph-node-input.inert {
-  cursor: default;
-  opacity: 0.58;
+  opacity: 0.72;
 }
 
 .rule-graph-node-rule rect {
@@ -104,6 +117,19 @@
   stroke: #7ad8e6;
   stroke-width: 2;
   filter: drop-shadow(0 0 12px rgba(73, 184, 204, 0.18));
+}
+
+.rule-graph-node-variable rect {
+  fill: #251d38;
+  stroke: #b482ff;
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 14px rgba(180, 130, 255, 0.2));
+}
+
+.rule-graph-node-variable:hover rect {
+  fill: #2d2344;
+  stroke: #c9a9ff;
+  stroke-width: 3;
 }
 
 .rule-graph-node-consumer rect {
@@ -134,9 +160,24 @@
   letter-spacing: 0.14em;
 }
 
+.variable-centered .graph-rule-kicker {
+  fill: #c3a4f6;
+}
+
 .graph-rule-title {
   fill: #f0fbff;
   font: 800 18px ui-sans-serif, system-ui, sans-serif;
+}
+
+.graph-variable-title {
+  fill: #f7efff;
+  font: 900 25px ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.graph-variable-value {
+  fill: #d0bdf0;
+  font: 700 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .graph-rule-meta {
@@ -188,4 +229,5 @@
 @media (max-width: 760px) {
   .graph-node-title { font-size: 16px; }
   .graph-node-meta { font-size: 13px; }
+  .graph-variable-title { font-size: 26px; }
 }

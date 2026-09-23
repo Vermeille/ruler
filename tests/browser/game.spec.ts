@@ -79,3 +79,13 @@ test('mobile layout, map click, invalid commands and imports, and a fresh countr
   await page.getByRole('button', { name: 'Begin a new mandate' }).click();
   await expect(page.locator('footer')).toContainText('test-new-country');
 });
+test('the wage floor can be enacted and survives the browser autosave', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#wage-form input[name="amount"]').fill('8');
+  await page.locator('#wage-form button').click();
+  await expect(page.getByRole('dialog')).toContainText('₡8.00 per worker');
+  await page.getByRole('button', { name: 'Enact measure →', exact: true }).click();
+  await page.getByRole('button', { name: 'Next month' }).click();
+  await page.reload();
+  await expect(page.locator('#wage-form input[name="amount"]')).toHaveValue('8');
+});

@@ -48,6 +48,7 @@ const selectedRuleId = ref('all');
 const selectedEffectIndex = ref(0);
 const effectFilter = ref('');
 const selectedCellId = ref(firstLandCellId());
+const navigationNote = ref('');
 
 const trace = computed(() => traceStep(game.value));
 const currentPhase = computed(() => trace.value.phases[selectedPhaseIndex.value]);
@@ -74,6 +75,8 @@ function effectTarget(effect: Effect): string {
       return `cell ${effect.cell} · ${effect.field}`;
     case 'transfer':
       return `${effect.from} → ${effect.to} · ${effect.resource}`;
+    case 'repayDebt':
+      return 'treasury → external · debt principal';
     case 'trade':
       return `${effect.from} → ${effect.to} · ${effect.resource}`;
     case 'budget':
@@ -87,6 +90,7 @@ function effectAmount(effect: Effect): string {
   switch (effect.kind) {
     case 'delta':
     case 'transfer':
+    case 'repayDebt':
       return signed(effect.amount);
     case 'trade':
       return `${effect.amount.toFixed(3)} @ ${effect.price.toFixed(2)}`;
@@ -131,7 +135,9 @@ const visibleEffects = computed(() => filteredEffects.value.slice(0, 300));
 const selectedEffect = computed(() => visibleEffects.value[selectedEffectIndex.value]);
 
 watch(currentPhase, phase => {
-  inspectedRuleId.value = phase?.rules[0]?.id ?? '';
+  if (!phase?.rules.some(rule => rule.id === inspectedRuleId.value)) {
+    inspectedRuleId.value = phase?.rules[0]?.id ?? '';
+  }
   selectedRuleId.value = 'all';
   selectedEffectIndex.value = 0;
   effectFilter.value = '';
@@ -160,11 +166,30 @@ function phaseEffectCount(phase: PhaseTrace): number {
 
 function inspectRule(ruleId: string): void {
   inspectedRuleId.value = ruleId;
+  navigationNote.value = '';
 }
 
 function inspectAndFilterRule(ruleId: string): void {
   inspectedRuleId.value = ruleId;
   selectedRuleId.value = ruleId;
+  navigationNote.value = '';
+}
+
+function navigateToRule(target: {
+  ruleId: string;
+  phase: string;
+  via: string;
+}): void {
+  const phaseIndex = trace.value.phases.findIndex(phase => phase.phase === target.phase);
+  if (phaseIndex < 0) {
+    navigationNote.value = `Could not find phase ${target.phase} in the current month.`;
+    return;
+  }
+
+  selectedPhaseIndex.value = phaseIndex;
+  inspectedRuleId.value = target.ruleId;
+  selectedRuleId.value = 'all';
+  navigationNote.value = `Followed ${target.via} → ${target.ruleId}; showing current month.`;
 }
 
 const cellChanges = computed(() => {
@@ -185,6 +210,7 @@ const cellChanges = computed(() => {
 function reset(): void {
   game.value = createGame(seed.value.trim(), width.value, height.value, mandate.value);
   selectedPhaseIndex.value = 0;
+  navigationNote.value = '';
   selectedCellId.value = firstLandCellId();
 }
 
@@ -192,6 +218,7 @@ function commitMonth(): void {
   if (game.value.ended) return;
   game.value = trace.value.result;
   selectedPhaseIndex.value = 0;
+  navigationNote.value = '';
   if (game.value.model.cells[selectedCellId.value]?.biome === 'water') {
     selectedCellId.value = firstLandCellId();
   }
@@ -199,14 +226,17 @@ function commitMonth(): void {
 
 function setPhase(index: number): void {
   selectedPhaseIndex.value = index;
+  navigationNote.value = '';
 }
 
 function previousPhase(): void {
   selectedPhaseIndex.value = Math.max(0, selectedPhaseIndex.value - 1);
+  navigationNote.value = '';
 }
 
 function nextPhase(): void {
   selectedPhaseIndex.value = Math.min(trace.value.phases.length - 1, selectedPhaseIndex.value + 1);
+  navigationNote.value = '';
 }
 
 function signed(value: number): string {
@@ -293,9 +323,10 @@ function json(value: unknown): string {
       <section v-if="currentPhase" class="dev-main-panel">
         <div class="phase-title-row">
           <div>
-            <span class="dev-kicker">PHASE {{ selectedPhaseIndex + 1 }} / {{ trace.phases.length }}</span>
+            <span class="dev-kicker">MONTH {{ game.model.tick + 1 }} · PHASE {{ selectedPhaseIndex + 1 }} / {{ trace.phases.length }}</span>
             <h2>{{ currentPhase.phase }}</h2>
             <p>All rules below read the same immutable snapshot. Their effects settle together before the next phase can read the result.</p>
+            <p v-if="navigationNote" class="dev-note">{{ navigationNote }}</p>
           </div>
           <div class="phase-nav">
             <button class="dev-icon-button" :disabled="selectedPhaseIndex === 0" @click="previousPhase">←</button>
@@ -336,6 +367,7 @@ function json(value: unknown): string {
           :game="game"
           :phase="currentPhase"
           :rule-id="activeRuleId"
+          @navigate-rule="navigateToRule"
         />
 
         <div class="dev-summary-grid">

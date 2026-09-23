@@ -9,6 +9,7 @@ tax income 0.28
 tax business 0.18
 spend health 0.40
 spend police 0.35
+wage minimum 4
 subsidize sports 1.50 in selected
 subsidize agriculture 0.50 in region 1
 subsidize sports 0 in national
@@ -17,6 +18,7 @@ invest hospital 5000 in selected
 law cleanAir on
 law freeMovement off
 law publicAssembly on
+law foodPriceControls on
 ```
 
 Commands accept exactly the documented arguments. Rates are fractions, not percentages. Omit the scope to default to national. Region IDs are zero-based: Northreach 0, The Greenbelt 1, Eastmere 2, Southbank 3. `selected` resolves to a fixed, explicit list of land mapxel IDs at submission time.
@@ -24,6 +26,7 @@ Commands accept exactly the documented arguments. Rates are fractions, not perce
 | Action | Fields | Bounds and semantics |
 | --- | --- | --- |
 | `tax` | `tax: incomeTax \| businessTax`, `rate` | 0–0.65, national |
+| `minimumWage` | `amount` | 0–10 crowns / worker / month, national; 0 removes the floor |
 | `spending` | `service`, `amount` | 0–2 crowns / resident / month, national |
 | `subsidy` | `sector`, `amount`, `scope` | 0–3 crowns / sector worker / month |
 | `law` | `law`, `enabled` | A supported law and a boolean |
@@ -35,7 +38,7 @@ Sectors: `agriculture`, `manufacturing`, `services`, `sports`.
 
 Projects: `transport`, `hospital`, `school`, `stadium`.
 
-Laws: `cleanAir`, `freeMovement`, `publicAssembly`.
+Laws: `cleanAir`, `freeMovement`, `publicAssembly`, `foodPriceControls`.
 
 Scopes:
 

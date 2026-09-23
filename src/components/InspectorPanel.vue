@@ -69,6 +69,7 @@ const description = computed(() => cell.value
       <div><span>Reserves / person</span><strong>₡{{ summary.wealth.toFixed(1) }}</strong></div>
       <div><span>Employment</span><strong>{{ formatPercent(summary.employment) }}</strong></div>
       <div><span>Food needs met</span><strong>{{ formatPercent(summary.foodSecurity) }}</strong></div>
+      <div><span>Starvation deaths / month</span><strong>{{ formatNumber(summary.starvationDeaths) }}</strong></div>
       <div><span>Crime pressure</span><strong>{{ formatPercent(summary.crime) }}</strong></div>
     </div>
 
@@ -91,6 +92,7 @@ const description = computed(() => cell.value
       <summary>Resources & living conditions</summary>
       <div class="inspector-grid">
         <div><span>Fertility</span><strong>{{ formatPercent(cell.fertility) }}</strong></div>
+        <div><span>Water stress</span><strong>{{ formatPercent(cell.waterStress) }}</strong></div>
         <div><span>Minerals</span><strong>{{ formatPercent(cell.minerals) }}</strong></div>
         <div><span>Health</span><strong>{{ formatPercent(cell.health) }}</strong></div>
         <div><span>Education</span><strong>{{ formatPercent(cell.education) }}</strong></div>
@@ -98,7 +100,8 @@ const description = computed(() => cell.value
         <div><span>Pollution</span><strong>{{ formatPercent(cell.pollution) }}</strong></div>
         <div><span>Food stored</span><strong>{{ (cell.food / cell.population).toFixed(1) }} months</strong></div>
         <div><span>Net food trade</span><strong>{{ cell.foodTraded > 0 ? '+' : '' }}{{ formatNumber(cell.foodTraded) }} units</strong></div>
-        <div><span>Food price</span><strong>₡{{ cell.price.toFixed(2) }}</strong></div>
+        <div><span>Posted food price</span><strong>₡{{ cell.price.toFixed(2) }}</strong></div>
+        <div><span>Scarcity price signal</span><strong>₡{{ cell.scarcityPrice.toFixed(2) }}</strong></div>
         <div><span>Sports interest</span><strong>{{ formatPercent(cell.sportsInterest) }}</strong></div>
       </div>
     </details>

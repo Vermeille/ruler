@@ -69,6 +69,15 @@ test('consumption and outgoing transfers share the same stock budget', () => {
   ]);
   close(a.food, 0); close(b.food, 5);
 });
+test('debt repayment moves only available cash and cannot erase more principal than owed', () => {
+  const g = tiny(); g.model.debt = 10; g.model.treasury = 5;
+  const beforeCash = cash(g), beforeExternal = g.model.externalCash;
+  commitEffects(g, deepFreeze(structuredClone(g.model)), [{ rule: 'repay', effect: { kind: 'repayDebt', amount: 10 } }]);
+  close(g.model.treasury, 0); close(g.model.debt, 5); close(g.model.externalCash - beforeExternal, 5);
+  close(cash(g), beforeCash, .001);
+  assert.throws(() => commitEffects(g, deepFreeze(structuredClone(g.model)),
+    [{ rule: 'repay', effect: { kind: 'repayDebt', amount: 6 } }]), /exceeds outstanding/);
+});
 test('neighbor trade and migration conserve resources and national population', () => {
   const start = tiny(), traded = run(start, 1, [tradeRule]), moved = run(start, 1, [migrationRule]);
   close(total(start, 'food'), total(traded, 'food')); close(total(start, 'materials'), total(traded, 'materials')); close(cash(start), cash(traded), .001);
@@ -90,6 +99,7 @@ test('DSL parses scoped and JSON commands without evaluating code', () => {
   const command = parseCommand('subsidize sports 1.5 in selected', [id]);
   assert.deepEqual(validateAction(command, g.model), { type: 'subsidy', sector: 'sports', amount: 1.5, scope: { kind: 'cells', ids: [id] } });
   assert.deepEqual(parseCommand('law cleanAir on'), { type: 'law', law: 'cleanAir', enabled: true });
+  assert.deepEqual(parseCommand('wage minimum 4'), { type: 'minimumWage', amount: 4 });
   assert.deepEqual(parseCommand('[{"type":"tax","tax":"incomeTax","rate":0.2}]'), [{ type: 'tax', tax: 'incomeTax', rate: .2 }]);
   for (const text of ['tax income 0.2 in selected', 'tax income 0.2 garbage', 'globalThis.hacked = true', 'law cleanAir maybe']) assert.throws(() => parseCommand(text));
 });
@@ -98,11 +108,21 @@ test('invalid, non-finite, unknown, duplicate-scope, and unaffordable actions ar
   const valid: Action = { type: 'tax', tax: 'incomeTax', rate: .3 };
   for (const invalid of [
     { ...valid, rate: NaN }, { ...valid, rate: .8 }, { ...valid, surprise: 5 }, { type: 'law', law: '__proto__', enabled: true },
+    { type: 'minimumWage', amount: -1 }, { type: 'minimumWage', amount: 11 }, { type: 'minimumWage', amount: 3, surprise: true },
     { type: 'subsidy', sector: 'sports', amount: 1, scope: { kind: 'cells', ids: [] } },
     { type: 'subsidy', sector: 'sports', amount: 1, scope: { kind: 'cells', ids: [id, id] } },
     { type: 'invest', project: 'transport', amount: g.model.treasury + 1, scope: { kind: 'national' } },
   ]) assert.throws(() => enact(g, [valid, invalid]));
   assert.equal(serialize(g), before);
+});
+test('a cash-free policy change remains available with tiny floating-point treasury debt', () => {
+  const g = tiny();
+  g.model.treasury = -1e-12;
+  assertModel(g.model);
+  const next = enact(g, { type: 'spending', service: 'health', amount: .1 });
+  assert.equal(next.model.policy.spending.health, .1);
+  assert.equal(g.model.policy.spending.health, .3);
+  assert.throws(() => enact(g, { type: 'invest', project: 'hospital', amount: 1, scope: { kind: 'national' } }), /Not enough treasury/);
 });
 test('local subsidies target only the selected area, with predictable override and repeal semantics', () => {
   const g = tiny(), [a, b] = g.model.cells.filter(c => c.population > 0);
@@ -126,16 +146,61 @@ test('saving mid-mandate reproduces the exact future including events and causal
   const restored = deserialize(serialize(g)); assert.deepEqual(restored, g);
   assert.deepEqual(run(restored, 8), run(g, 8));
 });
+test('a wage ruling survives save and resumes the same local economy', () => {
+  const ruled = run(enact(tiny('wage-save'), { type: 'minimumWage', amount: 6 }), 6);
+  assert.equal(ruled.model.policy.minimumWage, 6);
+  const restored = deserialize(serialize(ruled));
+  assert.deepEqual(run(restored, 6), run(ruled, 6));
+});
 test('save validation rejects invalid shapes, indices, policy, histories, references, and numbers', () => {
   const base = run(tiny(), 3);
   for (const corrupt of [
     (g: Game) => { g.model.cells[0].id = 100000; }, (g: Game) => { g.model.cells[40].health = NaN; },
     (g: Game) => { g.model.neighbors = []; }, (g: Game) => { g.model.policy.spending.health = 9; },
+    (g: Game) => { g.model.policy.minimumWage = 11; },
     (g: Game) => { g.model.cells.find(c => c.population > 0)!.price = 100; },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.scarcityPrice = 100; },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.waterStress = 2; },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.starvationDeaths = -1; },
     (g: Game) => { g.history.pop(); }, (g: Game) => { g.articles[0].causeIds = ['missing']; },
     (g: Game) => { g.causes[0].parents = [g.causes[0].id]; }, (g: Game) => { g.model.width = 10000; },
   ]) { const g = structuredClone(base); corrupt(g); assert.throws(() => deserialize(serialize(g))); }
-  assert.throws(() => deserialize('{')); assert.throws(() => deserialize('{"version":2}'));
+  assert.throws(() => deserialize('{')); assert.throws(() => deserialize('{"version":999}'));
+});
+test('version-one saves migrate with initially unstressed land', () => {
+  const prior = JSON.parse(serialize(run(tiny('legacy-save'), 3)));
+  prior.version = 1;
+  for (const c of prior.model.cells) { delete c.waterStress; delete c.starvationDeaths; delete c.scarcityPrice; }
+  delete prior.initial.starvationDeaths;
+  for (const h of prior.history) delete h.summary.starvationDeaths;
+  delete prior.model.policy.laws.foodPriceControls;
+  delete prior.model.policy.minimumWage;
+  const restored = deserialize(JSON.stringify(prior));
+  assert.equal(restored.version, 3);
+  assert.equal(restored.model.policy.minimumWage, 0);
+  assert.ok(restored.model.cells.every(c => c.waterStress === 0));
+  assert.ok(restored.model.cells.every(c => c.starvationDeaths === 0));
+  assert.ok(restored.model.cells.every(c => c.scarcityPrice === c.price));
+  assert.equal(restored.model.policy.laws.foodPriceControls, false);
+  assert.equal(restored.history.at(-1)!.summary.starvationDeaths, 0);
+});
+test('version-two saves migrate with an unregulated wage floor', () => {
+  const prior = JSON.parse(serialize(run(tiny('legacy-wage'), 3)));
+  prior.version = 2;
+  delete prior.model.policy.minimumWage;
+  const restored = deserialize(JSON.stringify(prior));
+  assert.equal(restored.version, 3);
+  assert.equal(restored.model.policy.minimumWage, 0);
+});
+test('enacting food price controls caps posted local prices and survives a save', () => {
+  const start = tiny('price-cap-save');
+  const cell = start.model.cells.find(c => c.biome !== 'water')!;
+  cell.price = 2.5;
+  cell.scarcityPrice = 2.5;
+  const controlled = enact(start, { type: 'law', law: 'foodPriceControls', enabled: true });
+  assert.equal(controlled.model.cells[cell.id].price, 1);
+  assert.equal(controlled.model.cells[cell.id].scarcityPrice, 2.5);
+  assert.deepEqual(deserialize(serialize(controlled)), controlled);
 });
 test('a mandate ends exactly once and refuses further policies or simulation steps', () => {
   const g = run(tiny('short-term', 3), 5); assert.equal(g.model.tick, 3); assert.equal(g.history.length, 4); assert.ok(g.ended); assert.equal(step(g), g);

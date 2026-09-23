@@ -128,6 +128,11 @@ function validateTaxAction(input: Record<string, unknown>): void {
   requireFiniteRange(input.rate, 0, 0.65);
 }
 
+function validateMinimumWageAction(input: Record<string, unknown>): void {
+  hasOnlyFields(input, ['type', 'amount']);
+  requireFiniteRange(input.amount, 0, 10);
+}
+
 function validateSpendingAction(input: Record<string, unknown>): void {
   hasOnlyFields(input, ['type', 'service', 'amount']);
 
@@ -210,6 +215,9 @@ export function validateAction(input: unknown, model: DeepReadonly<Model>): Acti
     case 'tax':
       validateTaxAction(input);
       break;
+    case 'minimumWage':
+      validateMinimumWageAction(input);
+      break;
     case 'spending':
       validateSpendingAction(input);
       break;
@@ -277,13 +285,16 @@ export function parseCommand(text: string, selected: number[] = []): unknown {
 
   const [verb, target, value] = words;
 
-  if (hadExplicitScope && ['tax', 'spend', 'law'].includes(verb)) {
-    throw new Error('Taxes, public spending, and laws apply nationally.');
+  if (hadExplicitScope && ['tax', 'spend', 'wage', 'law'].includes(verb)) {
+    throw new Error('Taxes, public spending, wage floors, and laws apply nationally.');
   }
 
   switch (verb) {
     case 'tax':
       return parseTax(target, value);
+    case 'wage':
+      if (target === 'minimum') return { type: 'minimumWage', amount: Number(value) };
+      break;
     case 'spend':
       return { type: 'spending', service: target, amount: Number(value) };
     case 'subsidize':
@@ -314,6 +325,8 @@ export function describeAction(action: Action, model: DeepReadonly<Model>): stri
     }
     case 'spending':
       return `Fund ${action.service} at ₡${action.amount.toFixed(2)} per resident / month`;
+    case 'minimumWage':
+      return `Set the minimum wage to ₡${action.amount.toFixed(2)} per worker / month`;
     case 'subsidy':
       return `Set ${action.sector} subsidy to ₡${action.amount.toFixed(2)} per worker / month ${describeScope(action.scope, model)}`;
     case 'law': {
@@ -321,6 +334,7 @@ export function describeAction(action: Action, model: DeepReadonly<Model>): stri
         cleanAir: 'the Clean Air Act',
         freeMovement: 'freedom of movement',
         publicAssembly: 'freedom of assembly',
+        foodPriceControls: 'food price controls',
       }[action.law];
       return `${action.enabled ? 'Enact' : 'Repeal'} ${lawName}`;
     }
@@ -406,11 +420,17 @@ function mutatePolicy(model: Model, action: Action, cause: string): void {
     case 'tax':
       model.policy[action.tax] = action.rate;
       break;
+    case 'minimumWage':
+      model.policy.minimumWage = action.amount;
+      break;
     case 'spending':
       model.policy.spending[action.service] = action.amount;
       break;
     case 'law':
       model.policy.laws[action.law] = action.enabled;
+      if (action.law === 'foodPriceControls' && action.enabled) {
+        for (const cell of model.cells) cell.price = Math.min(cell.price, 1);
+      }
       break;
     case 'subsidy':
       applySubsidy(model, action, cause);
@@ -442,7 +462,7 @@ export function previewActions(game: Game, input: unknown): PolicyPreview {
     mutatePolicy(trial, action, 'preview');
   }
 
-  if (upfront > game.model.treasury) {
+  if (upfront > 0 && upfront > game.model.treasury) {
     throw new Error('Not enough treasury cash for this investment package.');
   }
 
@@ -501,6 +521,9 @@ function updatePolicyProvenance(
   switch (action.type) {
     case 'tax':
       game.provenance[`policy:${action.tax}`] = causeId;
+      break;
+    case 'minimumWage':
+      game.provenance['policy:minimumWage'] = causeId;
       break;
     case 'spending':
       game.provenance[`policy:spending:${action.service}`] = causeId;

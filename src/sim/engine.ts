@@ -25,6 +25,7 @@ type SettlementPlan = {
 };
 
 const BOUNDED_FIELDS = new Set<MutableField>([
+  'waterStress',
   'children',
   'seniors',
   'education',
@@ -269,6 +270,7 @@ function validateBudgetEffect(
 function planSettlement(snapshot: DeepReadonly<Model>, proposals: Proposal[]): SettlementPlan {
   const demands = new Map<string, number>();
   let budgetEffectCount = 0;
+  let repaymentDemand = 0;
 
   for (const { effect } of proposals) {
     validateEffectAmount(effect);
@@ -280,6 +282,10 @@ function planSettlement(snapshot: DeepReadonly<Model>, proposals: Proposal[]): S
       case 'transfer':
         planTransferDemand(demands, snapshot, effect);
         break;
+      case 'repayDebt':
+        addDemand(demands, snapshot, 'treasury', 'cash', effect.amount);
+        repaymentDemand += effect.amount;
+        break;
       case 'trade':
         planTradeDemand(demands, snapshot, effect);
         break;
@@ -288,6 +294,10 @@ function planSettlement(snapshot: DeepReadonly<Model>, proposals: Proposal[]): S
         validateBudgetEffect(effect, budgetEffectCount);
         break;
     }
+  }
+
+  if (repaymentDemand > snapshot.debt + 1e-6) {
+    throw new Error('Debt repayment exceeds outstanding principal.');
   }
 
   return { demands };
@@ -362,6 +372,19 @@ function settleBudget(game: Game, effect: Extract<Effect, { kind: 'budget' }>): 
   game.model.debt += effect.debtDelta;
 }
 
+function settleDebtRepayment(
+  game: Game,
+  snapshot: DeepReadonly<Model>,
+  demands: Map<string, number>,
+  effect: Extract<Effect, { kind: 'repayDebt' }>,
+): number {
+  const actual = effect.amount * demandScale(snapshot, demands, 'treasury', 'cash');
+  moveResource(game.model, 'treasury', 'cash', -actual);
+  moveResource(game.model, 'external', 'cash', actual);
+  game.model.debt -= actual;
+  return actual;
+}
+
 function recordEvent(
   game: Game,
   snapshot: DeepReadonly<Model>,
@@ -428,7 +451,7 @@ function applyAccumulatedDeltas(game: Game, deltas: Map<string, number>): void {
 
     if (BOUNDED_FIELDS.has(field)) {
       cell[field] = clamp(value);
-    } else if (field === 'price') {
+    } else if (field === 'price' || field === 'scarcityPrice') {
       cell[field] = clamp(value, 0.4, 5);
     } else if (field === 'foodTraded') {
       cell[field] = value;
@@ -458,6 +481,9 @@ export function commitEffects(
         break;
       case 'transfer':
         actual = settleTransfer(game, snapshot, demands, effect);
+        break;
+      case 'repayDebt':
+        actual = settleDebtRepayment(game, snapshot, demands, effect);
         break;
       case 'trade':
         actual = settleTrade(game, snapshot, demands, effect);
@@ -512,8 +538,11 @@ export function assertModel(model: DeepReadonly<Model>): void {
       throw new Error('Invalid demographics.');
     }
 
-    if (cell.price < 0.4 || cell.price > 5) {
+    if (cell.price < 0.4 || cell.price > 5 || cell.scarcityPrice < 0.4 || cell.scarcityPrice > 5) {
       throw new Error('Food prices must remain in the calibrated range.');
+    }
+    if (model.policy.laws.foodPriceControls && cell.price > 1 + 1e-6) {
+      throw new Error('Posted food price exceeds the administered ceiling.');
     }
   }
 }

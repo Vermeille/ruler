@@ -3,7 +3,12 @@ import { computed, ref, watch } from 'vue';
 import type { Game } from '../sim/types';
 import type { PhaseTrace } from '../sim/trace';
 import { analyzeRule, type JacobianCell } from './rule-analysis';
-import { analyzeRuleInfluence } from './rule-influence';
+import {
+  analyzeRuleInfluence,
+  analyzeRuleInputInfluence,
+  type RuleConsumer,
+  type RuleProducer,
+} from './rule-influence';
 import RuleGraph from './RuleGraph.vue';
 import './rule-lens.css';
 
@@ -13,10 +18,19 @@ const props = defineProps<{
   ruleId: string;
 }>();
 
+const emit = defineEmits<{
+  navigateRule: [target: {
+    ruleId: string;
+    phase: string;
+    via: string;
+  }];
+}>();
+
 const CELL_SIZE = 28;
 const analysis = computed(() => analyzeRule(props.game, props.phase, props.ruleId));
 const selectedOutputKey = ref('');
 const selectedSensitivityKey = ref('');
+const selectedInputKey = ref('');
 
 const selectedOutput = computed(() => (
   analysis.value?.outputs.find(output => output.key === selectedOutputKey.value)
@@ -27,6 +41,22 @@ const influence = computed(() => analyzeRuleInfluence(
   props.phase,
   props.ruleId,
   selectedOutputKey.value,
+));
+
+const selectedInputInfluence = computed(() => (
+  selectedInputKey.value
+    ? analyzeRuleInputInfluence(
+        props.game,
+        props.phase,
+        props.ruleId,
+        selectedInputKey.value,
+      )
+    : undefined
+));
+
+const selectedInputLabel = computed(() => (
+  analysis.value?.inputs.find(input => input.key === selectedInputKey.value)?.label
+    ?? selectedInputKey.value
 ));
 
 const inputRows = computed(() => {
@@ -67,6 +97,7 @@ const activeFootprintCount = computed(() => (
 
 watch(analysis, next => {
   selectedOutputKey.value = next?.outputs[0]?.key ?? '';
+  selectedInputKey.value = '';
 }, { immediate: true });
 
 watch([analysis, selectedOutputKey], () => {
@@ -134,6 +165,33 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
   if (!cell) return;
   selectedSensitivityKey.value = cell.key;
 }
+
+function navigateConsumer(consumer: RuleConsumer): void {
+  emit('navigateRule', {
+    ruleId: consumer.ruleId,
+    phase: consumer.phase,
+    via: `${consumer.month} consumer`,
+  });
+}
+
+function navigateProducer(producer: RuleProducer): void {
+  emit('navigateRule', {
+    ruleId: producer.ruleId,
+    phase: producer.phase,
+    via: `${producer.month} producer`,
+  });
+}
+
+function inspectInput(inputKey: string): void {
+  selectedInputKey.value = inputKey;
+  const upstream = analyzeRuleInputInfluence(
+    props.game,
+    props.phase,
+    props.ruleId,
+    inputKey,
+  );
+  if (upstream.producers.length === 1) navigateProducer(upstream.producers[0]);
+}
 </script>
 
 <template>
@@ -158,7 +216,41 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
       :selected-sensitivity-key="selectedSensitivityKey"
       @select-output="selectedOutputKey = $event"
       @select-sensitivity="selectedSensitivityKey = $event"
+      @inspect-input="inspectInput"
+      @navigate-rule="navigateConsumer"
     />
+
+    <section
+      v-if="selectedInputKey && selectedInputInfluence && selectedInputInfluence.producers.length !== 1"
+      class="sensitivity-card"
+      aria-label="Upstream producers"
+    >
+      <div class="lens-section-heading">
+        <div>
+          <span class="dev-kicker">UPSTREAM / {{ selectedInputLabel }}</span>
+          <h4 v-if="selectedInputInfluence.producers.length">Which writer do you want to inspect?</h4>
+          <h4 v-else>No traced rule writes this input.</h4>
+        </div>
+        <p v-if="selectedInputInfluence.producers.length">
+          Several rules write exact state paths read by this input group. Pick one to recenter the graph.
+        </p>
+        <p v-else>
+          This value is exogenous, random, structural, or carried from state for which no writer emitted a matching effect in the traced cycle.
+        </p>
+      </div>
+
+      <div v-if="selectedInputInfluence.producers.length" class="rule-tabs" role="list" aria-label="Input producer rules">
+        <button
+          v-for="producer in selectedInputInfluence.producers"
+          :key="producer.key"
+          type="button"
+          @click="navigateProducer(producer)"
+        >
+          {{ producer.ruleId }}
+          <span>{{ producer.month }} · {{ Math.round(producer.strength * 100) }}%</span>
+        </button>
+      </div>
+    </section>
 
     <details class="causal-details">
       <summary>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeRule } from '../src/dev/rule-analysis';
-import { analyzeRuleInfluence } from '../src/dev/rule-influence';
+import { analyzeRuleInfluence, analyzeRuleInputInfluence } from '../src/dev/rule-influence';
 import { traceStep } from '../src/sim/trace';
 import { createGame } from '../src/sim/world';
 
@@ -65,6 +65,27 @@ test('rule influence traces exact downstream reads and recurrent self-dependenci
   )), 'migration population should feed at least one other rule');
   assert.ok(influence.consumers.every(consumer => (
     consumer.paths.length > 0 && consumer.strength > 0 && consumer.strength <= 1
+  )));
+});
+
+test('input influence traces exact upstream writers', () => {
+  const { game, phase } = analysisFor('society.migration');
+  const influence = analyzeRuleInputInfluence(
+    game,
+    phase,
+    'society.migration',
+    'cell.happiness',
+  );
+
+  assert.ok(influence.readPaths.length > 0);
+  assert.ok(influence.readPaths.every(path => path.path.includes('.happiness')));
+  assert.ok(influence.producers.some(producer => (
+    producer.ruleId === 'society.wellbeing'
+      && producer.phase === 'society'
+      && producer.strength > 0
+  )), 'migration happiness should trace back to society wellbeing');
+  assert.ok(influence.producers.every(producer => (
+    producer.paths.length > 0 && producer.strength > 0 && producer.strength <= 1
   )));
 });
 

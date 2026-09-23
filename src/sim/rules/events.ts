@@ -18,6 +18,9 @@ export const eventRule: Rule = {
   run({ model, random, lastEvents }) {
     const effects: Effect[] = [];
     const candidates = model.cells.filter(isLand);
+    for (const cell of candidates) {
+      if (cell.waterStress > 0) effects.push(delta(cell, 'waterStress', -cell.waterStress * 0.35));
+    }
 
     // Pick one location per event family. Country size should not multiply the
     // probability of a national-scale event occurring in a given month.
@@ -118,13 +121,13 @@ export const eventRule: Rule = {
         key: 'drought',
         evidence: {
           title: `Dry weather hits ${regionName}`,
-          detail: 'A seeded regional weather shock destroys 35% of stored food. Neighbor trade and the remaining buffer determine whether households go hungry next month.',
+          detail: 'A seeded regional drought destroys 35% of stored food and leaves fields water-stressed. Local harvests recover gradually as the ground recovers.',
           cells: affected.map(cell => cell.id),
         },
         article: {
           category: 'dispatch',
           headline: `Dry fields in ${regionName}`,
-          body: 'An unusually dry month has damaged local food reserves. Farmers are looking to their neighbors for supplies. Well-connected communities may weather the disruption more easily.',
+          body: 'An unusually dry month has damaged local food reserves and weakened the next harvest. Farmers are looking to their neighbors for supplies.',
           voice: 'The Commonwealth Ledger · Regional desk',
           cell: farm.id,
           tone: 'bad',
@@ -143,6 +146,7 @@ export const eventRule: Rule = {
             reads: [read(cell, 'food', 'Stored food before drought')],
           },
         ));
+        effects.push({ kind: 'delta', cell: cell.id, field: 'waterStress', amount: (1 - cell.waterStress) * 0.4, eventKey: 'drought' });
       }
     }
 

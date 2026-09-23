@@ -70,6 +70,7 @@ export function summarize(
     price: weightedMean('price'),
     output: cells.reduce((sum, cell) => sum + cell.output, 0),
     food: cells.reduce((sum, cell) => sum + cell.food, 0),
+    starvationDeaths: cells.reduce((sum, cell) => sum + cell.starvationDeaths, 0),
     treasury: model.treasury,
     debt: model.debt,
   };

@@ -21,6 +21,7 @@ export const LAWS = [
   'cleanAir',
   'freeMovement',
   'publicAssembly',
+  'foodPriceControls',
 ] as const;
 export type Law = typeof LAWS[number];
 
@@ -37,12 +38,14 @@ export interface Mapxel {
   elevation: number;
   fertility: number;
   minerals: number;
+  waterStress: number;
 
   population: number;
   cash: number;
   food: number;
   materials: number;
   price: number;
+  scarcityPrice: number;
 
   children: number;
   seniors: number;
@@ -67,6 +70,7 @@ export interface Mapxel {
   foodUsed: number;
   foodTraded: number;
   businessHealth: number;
+  starvationDeaths: number;
 }
 
 export type Field = {
@@ -79,6 +83,8 @@ export const MUTABLE_FIELDS = [
   'food',
   'materials',
   'price',
+  'scarcityPrice',
+  'waterStress',
   'children',
   'seniors',
   'education',
@@ -97,6 +103,7 @@ export const MUTABLE_FIELDS = [
   'foodUsed',
   'foodTraded',
   'businessHealth',
+  'starvationDeaths',
 ] as const satisfies readonly Field[];
 
 export type MutableField = typeof MUTABLE_FIELDS[number];
@@ -104,6 +111,7 @@ export type MutableField = typeof MUTABLE_FIELDS[number];
 export interface Policy {
   incomeTax: number;
   businessTax: number;
+  minimumWage: number;
   spending: Record<Service, number>;
   subsidies: Record<Sector, number>;
   laws: Record<Law, boolean>;
@@ -116,6 +124,7 @@ export type Scope =
 
 export type Action =
   | { type: 'tax'; tax: 'incomeTax' | 'businessTax'; rate: number }
+  | { type: 'minimumWage'; amount: number }
   | { type: 'spending'; service: Service; amount: number }
   | { type: 'subsidy'; sector: Sector; amount: number; scope: Scope }
   | { type: 'law'; law: Law; enabled: boolean }
@@ -176,6 +185,7 @@ export interface Summary extends Record<Metric, number> {
   treasury: number;
   debt: number;
   food: number;
+  starvationDeaths: number;
 }
 
 export interface Observation {
@@ -215,7 +225,7 @@ export interface History {
 }
 
 export interface Game {
-  version: 1;
+  version: 3;
   model: Model;
   initial: Summary;
   history: History[];
@@ -259,6 +269,10 @@ export type Effect =
       resource: 'cash' | 'food' | 'materials' | 'population';
       amount: number;
       evidence?: Evidence;
+    }
+  | {
+      kind: 'repayDebt';
+      amount: number;
     }
   | {
       kind: 'trade';

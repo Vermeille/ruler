@@ -1,6 +1,7 @@
 import { clamp } from '../math';
-import type { DeepReadonly, Effect, Mapxel, Rule } from '../types';
+import { SECTORS, type DeepReadonly, type Effect, type Mapxel, type Rule } from '../types';
 import { changeToward, delta, isLand, read } from './helpers';
+import { viableJobs } from './wages';
 
 function averageNeighborWealth(
   neighbors: readonly DeepReadonly<Mapxel>[],
@@ -22,6 +23,9 @@ export const societyRule: Rule = {
       const funding = model.budget.funding;
       const wealth = cell.cash / cell.population;
       const neighbors = model.neighbors[cell.id].map(id => model.cells[id]);
+      const neighborIndustry = neighbors.length
+        ? neighbors.reduce((sum, neighbor) => sum + neighbor.manufacturing, 0) / neighbors.length
+        : cell.manufacturing;
       const neighborWealth = averageNeighborWealth(neighbors);
       const inequality = clamp((neighborWealth - wealth) / 40);
       const poverty = clamp((24 - wealth) / 24);
@@ -73,11 +77,14 @@ export const societyRule: Rule = {
           + Math.min(1, cell.materials / cell.population) * 0.06,
       );
       const pollutionTarget = clamp(
-        cell.manufacturing * (model.policy.laws.cleanAir ? 0.6 : 1.1)
+        (cell.manufacturing * 0.75 + neighborIndustry * 0.25) * (model.policy.laws.cleanAir ? 0.6 : 1.1)
           + cell.population / 12000
           - spending.environment * funding * 0.7,
       );
-      const employmentTarget = clamp(
+      const affordableJobs = SECTORS.reduce(
+        (sum, sector) => sum + cell[sector] * viableJobs(cell, model, sector), 0,
+      );
+      const ordinaryJobs = clamp(
         0.96
           - (1 - cell.businessHealth) * cell.services * 0.6
           - model.policy.businessTax * 0.12
@@ -85,6 +92,17 @@ export const societyRule: Rule = {
         0.45,
         0.98,
       );
+      const employmentTarget = clamp(ordinaryJobs * affordableJobs, 0.05, 0.98);
+      const employmentEvidence = affordableJobs < 0.6
+        && cell.employment > employmentTarget + 0.1 && model.tick % 3 === 0
+        ? {
+            title: `${cell.name}: firms cut hiring`,
+            detail: `At a ₡${model.policy.minimumWage.toFixed(2)} wage floor, only ${(affordableJobs * 100).toFixed(0)}% of local jobs can cover payroll from production receipts after business tax and imported inputs. Employment adjusts gradually.`,
+            cells: [cell.id],
+            reads: [read(cell, 'output', 'Local production'), read(cell, 'businessHealth', 'Business viability'), read(cell, 'employment', 'Current employment')],
+            parents: ['policy:minimumWage'],
+          }
+        : undefined;
       const happinessTarget = clamp(
         0.29
           + cell.health * 0.22
@@ -110,7 +128,9 @@ export const societyRule: Rule = {
       const deathRate = 0.00095
         + (1 - cell.health) * 0.0005
         + (1 - cell.foodSecurity) * 0.0008;
-      const populationChange = cell.population * (birthRate - deathRate);
+      const deprivation = clamp((0.7 - cell.foodSecurity) / 0.7);
+      const starvationDeaths = cell.population * deprivation * deprivation * 0.008;
+      const populationChange = cell.population * (birthRate - deathRate) - starvationDeaths;
       const childrenTarget = clamp(0.15 + cell.happiness * 0.09, 0.12, 0.28);
       const seniorsTarget = clamp(0.12 + cell.health * 0.07, 0.12, 0.22);
 
@@ -120,11 +140,12 @@ export const societyRule: Rule = {
         changeToward(cell, 'education', educationTarget, 0.025),
         changeToward(cell, 'infrastructure', infrastructureTarget, 0.06),
         changeToward(cell, 'pollution', pollutionTarget, 0.08),
-        changeToward(cell, 'employment', employmentTarget, 0.1),
+        changeToward(cell, 'employment', employmentTarget, 0.1, employmentEvidence),
         changeToward(cell, 'happiness', happinessTarget, 0.09),
         changeToward(cell, 'approval', approvalTarget, 0.12),
         changeToward(cell, 'sportsInterest', sportsInterestTarget, 0.06),
         delta(cell, 'population', populationChange),
+        delta(cell, 'starvationDeaths', starvationDeaths - cell.starvationDeaths),
         changeToward(cell, 'children', childrenTarget, 0.008),
         changeToward(cell, 'seniors', seniorsTarget, 0.005),
       ];
@@ -133,16 +154,21 @@ export const societyRule: Rule = {
 };
 
 function appeal(cell: DeepReadonly<Mapxel>): number {
+  const cashReceipts = cell.output * 0.65 / cell.population;
+  const foodAdjustedReceipts = cashReceipts / cell.price;
+  const foodAdjustedReserves = cell.cash / cell.population / cell.price;
   return cell.happiness
     + cell.employment * 0.4
-    + clamp(cell.cash / cell.population / 60) * 0.15
+    + clamp(foodAdjustedReceipts / 5) * 0.28
+    + clamp(foodAdjustedReserves / 60) * 0.12
+    + cell.foodSecurity * 0.3
     - cell.population / 15000;
 }
 
 export const migrationRule: Rule = {
   id: 'society.migration',
   phase: 'migration',
-  description: 'Residents move to adjacent opportunities, carrying their savings. Moves are gradual and population-conserving.',
+  description: 'Residents compare nearby work, food-adjusted earnings, reserves, and food access before moving with their savings.',
   run({ model }) {
     const effects: Effect[] = [];
 
@@ -156,7 +182,7 @@ export const migrationRule: Rule = {
         const movementRate = Math.min(0.003, Math.abs(difference) * 0.007);
         const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
         const population = from.population * movementRate * freedomMultiplier;
-        const cash = population * from.cash / from.population;
+        const cash = population * Math.max(0, from.cash) / from.population;
 
         effects.push({
           kind: 'transfer',
