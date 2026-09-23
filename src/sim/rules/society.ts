@@ -3,7 +3,6 @@ import type { DeepReadonly, Effect, Mapxel, Rule } from '../types';
 import { changeToward, delta, isLand, read } from './helpers';
 
 function averageNeighborWealth(
-  cell: DeepReadonly<Mapxel>,
   neighbors: readonly DeepReadonly<Mapxel>[],
 ): number {
   const total = neighbors.reduce(
@@ -23,7 +22,7 @@ export const societyRule: Rule = {
       const funding = model.budget.funding;
       const wealth = cell.cash / cell.population;
       const neighbors = model.neighbors[cell.id].map(id => model.cells[id]);
-      const neighborWealth = averageNeighborWealth(cell, neighbors);
+      const neighborWealth = averageNeighborWealth(neighbors);
       const inequality = clamp((neighborWealth - wealth) / 40);
       const poverty = clamp((24 - wealth) / 24);
       const police = spending.police * funding;
