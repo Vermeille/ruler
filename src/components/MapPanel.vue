@@ -37,6 +37,7 @@ function mountMap(): void {
     layer: props.layer,
     zoom: props.zoom,
     roads: props.roads,
+    running: props.running,
     onSelect: (ids, additive) => emit('select', ids, additive),
   });
 }
@@ -58,7 +59,7 @@ function zoomBy(delta: number): void {
 onMounted(mountMap);
 onBeforeUnmount(() => destroyMap?.());
 watch(
-  () => [props.game, props.selected, props.layer, props.zoom, props.roads, props.darkMode],
+  () => [props.game, props.selected, props.layer, props.zoom, props.roads, props.running, props.darkMode],
   () => void nextTick(mountMap),
   { flush: 'post' },
 );
