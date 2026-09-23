@@ -15,7 +15,10 @@ test('simulation workbench explains rules visually and preserves the forensic in
 
   await expect(lens).toContainText('economy.production');
   await expect(lens.locator('.sensitivity-card')).toContainText('Random · Weather');
-  await expect(lens.locator('.sensitivity-bar i').first()).toBeVisible();
+  const productionBar = lens.locator('.sensitivity-bar i').first();
+  await expect(productionBar).toBeVisible();
+  expect((await productionBar.boundingBox())?.width ?? 0).toBeGreaterThan(40);
+  await expect(lens.locator('.sensitivity-score strong').first()).toContainText('100');
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
 
   await phases.getByRole('button', { name: /migration/ }).click();
@@ -23,6 +26,10 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(lens).toContainText('society.migration');
   await expect(lens.locator('.sensitivity-card')).toContainText('Cell Happiness');
   await expect(lens.locator('.rule-output-strip')).toContainText('Population Flow');
+  const migrationBar = lens.locator('.sensitivity-bar i').first();
+  await expect(migrationBar).toBeVisible();
+  expect((await migrationBar.boundingBox())?.width ?? 0).toBeGreaterThan(40);
+  await expect(lens.locator('.sensitivity-score strong').first()).toContainText('100');
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
   expect(await lens.locator('.footprint-flow').count()).toBeGreaterThan(0);
   await expect(lens.locator('.flow-rank-row').first()).toBeVisible();
