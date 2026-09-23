@@ -193,8 +193,7 @@ function selectInput(row: GraphInput): void {
         <h4>What feeds this rule, and what does it feed?</h4>
       </div>
       <p>
-        Click an input to follow its upstream writer, an output to change the gradient question,
-        or a consumer to recenter the workbench on that rule.
+        Input edges show the local gradient for the selected output. Click an input or consumer to recenter the graph on the related rule in this current month. Time labels still describe the relationship; they do not move the inspector through time.
       </p>
     </div>
 
@@ -299,7 +298,10 @@ function selectInput(row: GraphInput): void {
           v-for="(row, index) in graphInputs"
           :key="`input:${row.key}`"
           class="rule-graph-node rule-graph-node-input"
-          :class="{ selected: row.sensitivity?.key === selectedSensitivityKey }"
+          :class="{
+            selected: row.sensitivity?.key === selectedSensitivityKey,
+            inert: !row.sensitivity,
+          }"
           :transform="`translate(${INPUT_X} ${laneY(index, graphInputs.length)})`"
           role="button"
           tabindex="0"
@@ -307,7 +309,7 @@ function selectInput(row: GraphInput): void {
           @keydown.enter.prevent="selectInput(row)"
           @keydown.space.prevent="selectInput(row)"
         >
-          <title>{{ row.label }} · click to follow upstream</title>
+          <title>{{ row.label }}</title>
           <rect :width="INPUT_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(row.label, 29) }}</text>
           <text x="12" y="34" class="graph-node-meta">
@@ -357,7 +359,7 @@ function selectInput(row: GraphInput): void {
           @keydown.enter.prevent="emit('navigateRule', consumer)"
           @keydown.space.prevent="emit('navigateRule', consumer)"
         >
-          <title>{{ consumer.ruleId }} reads {{ consumer.paths.map(path => path.label).join(', ') }} · click to inspect</title>
+          <title>{{ consumer.ruleId }} reads {{ consumer.paths.map(path => path.label).join(', ') }}</title>
           <rect :width="CONSUMER_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(consumer.ruleId, 27) }}</text>
           <text x="12" y="34" class="graph-node-meta">
@@ -372,7 +374,7 @@ function selectInput(row: GraphInput): void {
       <span><i class="negative" /> negative input gradient</span>
       <span><i class="mixed" /> mixed gradient</span>
       <span><i class="same-month" /> same-month direct consumer</span>
-      <span><i class="next-month" /> next-month consumer</span>
+      <span><i class="next-month" /> next-month relationship; click inspects current value</span>
       <span><i class="feedback" /> recurrent self-dependency</span>
       <small>Input width = normalized local derivative · output width = emitted channel breadth · consumer width = share of exact written paths reread</small>
     </div>
