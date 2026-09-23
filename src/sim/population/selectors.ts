@@ -1,13 +1,19 @@
 import { SECTORS, type DeepReadonly, type Model, type PopulationGroup, type Sector } from '../types';
 
 export function populationOf(model: DeepReadonly<Model>, cell: number): number {
-  return model.populationGroups[cell].reduce((sum, group) => sum + group.count, 0);
+  let total = 0;
+  for (const group of model.populationGroups[cell]) total += group.count;
+  return total;
 }
 
 function weighted(model: DeepReadonly<Model>, cell: number, value: (group: DeepReadonly<PopulationGroup>) => number): number {
-  const groups = model.populationGroups[cell];
-  const total = populationOf(model, cell);
-  return total > 0 ? groups.reduce((sum, group) => sum + group.count * value(group), 0) / total : 0;
+  let total = 0;
+  let sum = 0;
+  for (const group of model.populationGroups[cell]) {
+    total += group.count;
+    sum += group.count * value(group);
+  }
+  return total > 0 ? sum / total : 0;
 }
 
 export const approvalOf = (model: DeepReadonly<Model>, cell: number) => weighted(model, cell, group => group.approval);
@@ -19,20 +25,37 @@ export const childrenShareOf = (model: DeepReadonly<Model>, cell: number) => wei
 export const seniorShareOf = (model: DeepReadonly<Model>, cell: number) => weighted(model, cell, group => Number(group.lifeStage === 'senior'));
 
 export function employmentOf(model: DeepReadonly<Model>, cell: number): number {
-  const adults = model.populationGroups[cell].filter(group => group.lifeStage === 'adult');
-  const total = adults.reduce((sum, group) => sum + group.count, 0);
-  return total > 0 ? adults.reduce((sum, group) => sum + (group.employed ? group.count : 0), 0) / total : 0;
+  let adults = 0;
+  let employed = 0;
+  for (const group of model.populationGroups[cell]) {
+    if (group.lifeStage !== 'adult') continue;
+    adults += group.count;
+    if (group.employed) employed += group.count;
+  }
+  return adults > 0 ? employed / adults : 0;
 }
 
 /** Employed adult occupational composition. This is the source of truth behind legacy mapxel sector shares. */
-export function occupationShareOf(model: DeepReadonly<Model>, cell: number, sector: Sector): number {
-  const workers = model.populationGroups[cell].filter(group =>
-    group.lifeStage === 'adult' && group.employed && group.occupation !== null);
-  const total = workers.reduce((sum, group) => sum + group.count, 0);
-  if (total <= 0) return model.cells[cell][sector];
-  return workers.reduce((sum, group) => sum + (group.occupation === sector ? group.count : 0), 0) / total;
+export function occupationSharesOf(model: DeepReadonly<Model>, cell: number): Record<Sector, number> {
+  const totals: Record<Sector, number> = {
+    agriculture: 0,
+    manufacturing: 0,
+    services: 0,
+    sports: 0,
+  };
+  let workers = 0;
+  for (const group of model.populationGroups[cell]) {
+    if (group.lifeStage !== 'adult' || !group.employed || group.occupation === null) continue;
+    workers += group.count;
+    totals[group.occupation] += group.count;
+  }
+  if (workers <= 0) {
+    return Object.fromEntries(SECTORS.map(sector => [sector, model.cells[cell][sector]])) as Record<Sector, number>;
+  }
+  for (const sector of SECTORS) totals[sector] /= workers;
+  return totals;
 }
 
-export function occupationSharesOf(model: DeepReadonly<Model>, cell: number): Record<Sector, number> {
-  return Object.fromEntries(SECTORS.map(sector => [sector, occupationShareOf(model, cell, sector)])) as Record<Sector, number>;
+export function occupationShareOf(model: DeepReadonly<Model>, cell: number, sector: Sector): number {
+  return occupationSharesOf(model, cell)[sector];
 }
