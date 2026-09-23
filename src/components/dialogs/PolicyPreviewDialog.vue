@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import type { Action } from '../../sim/types';
 import { formatMoney } from '../../ui/format';
+import type { PolicyPreviewData } from '../../ui/view-types';
 import BaseModal from './BaseModal.vue';
-
-export interface PolicyPreviewData {
-  actions: Action[];
-  descriptions: string[];
-  monthlyChange: number;
-  upfront: number;
-  warnings: string[];
-}
 
 defineProps<{ preview: PolicyPreviewData }>();
 const emit = defineEmits<{ close: []; enact: [actions: Action[]] }>();
