@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commonwealth City"
+  short_description: "Orient to the simulation and its codebase"
+  default_prompt: "Give me the 10-minute orientation to Commonwealth City, then help with this project task."
