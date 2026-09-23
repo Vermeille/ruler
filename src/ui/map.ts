@@ -8,6 +8,7 @@ import {
   type HeatmapLayer,
   type Layer,
 } from './map-layers';
+import { drawTerrainIdentity, onTerrainAtlasReady, terrainIdentity } from './map-terrain';
 
 export { ALL_LAYERS, LAYERS, type Layer } from './map-layers';
 
@@ -193,7 +194,7 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
 
   function tooltipText(c: Mapxel): string {
     const labels = activity.labelsByCell.get(c.id) ?? [];
-    const parts = [c.name];
+    const parts = [c.name, terrainIdentity(c, m).label];
     const overview = visibleLayers.size === ALL_LAYERS.length
       && LAYERS.every(layer => visibleLayers.has(layer.id));
 
@@ -245,6 +246,7 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
         ctx.fillRect(x, y, cellSize, cellSize);
         drawSummaryLayers(c, x, y, dark);
       }
+      drawTerrainIdentity(ctx, c, m, x, y, cellSize, Boolean(focusedHeatmap));
       ctx.strokeStyle = 'rgba(40,72,53,.045)'; ctx.lineWidth = .5; ctx.strokeRect(x, y, cellSize, cellSize);
       ctx.strokeStyle = 'rgba(62,91,69,.28)'; ctx.lineWidth = 1;
       for (const [dx, dy, x1, y1, x2, y2] of [[-1, 0, x, y, x, y + cellSize], [1, 0, x + cellSize, y, x + cellSize, y + cellSize], [0, -1, x, y, x + cellSize, y], [0, 1, x, y + cellSize, x + cellSize, y + cellSize]]) {
@@ -305,12 +307,15 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
   };
   canvas.onpointercancel = () => { start = undefined; pointer = undefined; redraw(); };
   canvas.onpointerleave = () => { hover = undefined; tooltip.style.display = 'none'; if (!start) redraw(); };
-  const observer = new ResizeObserver(redraw); observer.observe(canvas); redraw();
+  const observer = new ResizeObserver(redraw);
+  const unsubscribeTerrainAtlas = onTerrainAtlasReady(redraw);
+  observer.observe(canvas); redraw();
   const freshEvents = activity.events.length > 0;
   if (!reducedMotion && ((options.running && animatedActivity) || freshEvents)) animationFrame = requestAnimationFrame(animate);
 
   return () => {
     observer.disconnect();
+    unsubscribeTerrainAtlas();
     cancelAnimationFrame(animationFrame);
   };
 }
