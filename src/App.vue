@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import AppHeader from './components/AppHeader.vue';
 import GovernmentDesk from './components/GovernmentDesk.vue';
 import InspectorPanel from './components/InspectorPanel.vue';
@@ -30,7 +30,9 @@ type ModalState =
 
 const toastMessage = ref('');
 const toastIsError = ref(false);
-const modal = ref<ModalState>(null);
+// Modal payloads can contain simulation Actions. Keep them raw so the
+// simulation's structuredClone-based validation never receives Vue proxies.
+const modal = shallowRef<ModalState>(null);
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 function toast(message: string, error = false): void {
