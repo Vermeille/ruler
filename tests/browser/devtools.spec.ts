@@ -11,9 +11,12 @@ test('simulation workbench explains rules visually and preserves the forensic in
   const phases = page.locator('.dev-phases');
   const lens = page.locator('.rule-lens');
   const graph = lens.locator('.rule-graph-card');
+  const rulePicker = page.locator('[aria-label="Rules in this phase"]');
   await expect(phases.getByRole('button', { name: /production/ })).toBeVisible();
   await expect(phases.getByRole('button', { name: /events/ })).toBeVisible();
 
+  await expect(rulePicker).toContainText('1 rule');
+  await expect(rulePicker.getByRole('button', { name: /economy.production/ })).toHaveClass(/active/);
   await expect(lens).toContainText('economy.production');
   await expect(graph).toBeVisible();
   await expect(graph.locator('.rule-graph-node-input')).toContainText(['Random · Weather']);
@@ -26,8 +29,16 @@ test('simulation workbench explains rules visually and preserves the forensic in
   const lensContained = await lens.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
   expect(lensContained).toBe(true);
 
+  await phases.getByRole('button', { name: /market/ }).click();
+  await expect(page.getByRole('heading', { name: 'market', exact: true })).toBeVisible();
+  await expect(rulePicker).toContainText('1 rule');
+  await expect(rulePicker.getByRole('button', { name: /economy.businesses/ })).toHaveClass(/active/);
+  await expect(rulePicker).toContainText('Scarcity changes local prices');
+  await expect(lens).toContainText('economy.businesses');
+
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
+  await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
   await expect(lens).toContainText('society.migration');
   await expect(graph.locator('.rule-graph-node-input')).toContainText(['Cell Happiness']);
   await expect(graph.locator('.rule-graph-node-output')).toContainText(['Population Flow']);
