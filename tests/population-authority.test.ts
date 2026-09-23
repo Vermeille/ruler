@@ -9,13 +9,13 @@ import {
   wellbeingOf,
 } from '../src/sim/population/selectors';
 import { migrationRule, societyRule, defaultRules } from '../src/sim/rules';
-import { SECTORS, type Effect, type Game } from '../src/sim/types';
+import { SECTORS, type Effect, type Game, type Rule } from '../src/sim/types';
 import { step } from '../src/sim/engine';
 import { createGame } from '../src/sim/world';
 
 const game = () => createGame('population-authority-tests', 12, 12, 48);
 const land = (g: Game) => g.model.cells.find(cell => cell.biome !== 'water')!;
-const effects = (rule: typeof societyRule | typeof migrationRule, g: Game): Effect[] => rule.run({
+const effects = (rule: Rule, g: Game): Effect[] => rule.run({
   model: deepFreeze(structuredClone(g.model)),
   random: () => 0.5,
   lastEvents: {},
@@ -65,8 +65,10 @@ test('employment transitions start from population groups, not the stale mapxel 
 
 test('migration emerges from individual group circumstances rather than one precomputed cell flow', () => {
   const g = game();
-  const from = g.model.cells.find(cell => cell.biome !== 'water' && g.model.neighbors[cell.id].length > 0)!;
-  const to = g.model.cells[g.model.neighbors[from.id][0]];
+  const from = g.model.cells.find(cell => cell.biome !== 'water'
+    && g.model.neighbors[cell.id].some(id => g.model.cells[id].biome !== 'water'))!;
+  const toId = g.model.neighbors[from.id].find(id => g.model.cells[id].biome !== 'water')!;
+  const to = g.model.cells[toId];
   const archetypeGroups = g.model.populationGroups[from.id].filter(group => group.lifeStage === 'adult');
   const first = archetypeGroups[0];
   const second = archetypeGroups.find(group => group.archetype === first.archetype
@@ -89,6 +91,20 @@ test('migration emerges from individual group circumstances rather than one prec
     education: 0.55,
     output: from.population * 2,
   });
+  for (const neighborId of g.model.neighbors[from.id]) {
+    const neighbor = g.model.cells[neighborId];
+    if (neighbor.biome === 'water' || neighbor.id === to.id) continue;
+    Object.assign(neighbor, {
+      happiness: 0.1,
+      foodSecurity: 0.2,
+      price: 4,
+      crime: 0.7,
+      pollution: 0.7,
+      health: 0.3,
+      education: 0.3,
+      output: neighbor.population,
+    });
+  }
   Object.assign(to, {
     happiness: 0.85,
     foodSecurity: 1,
