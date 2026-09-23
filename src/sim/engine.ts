@@ -670,11 +670,29 @@ function runPhase(game: Game, phase: Phase, orderedRules: Rule[]): void {
   const activeRules = orderedRules.filter(rule => rule.phase === phase);
   if (activeRules.length === 0) return;
 
+  const profiling = Boolean((globalThis as typeof globalThis & { __SIM_PROFILE__?: boolean }).__SIM_PROFILE__);
+  const phaseStart = profiling ? performance.now() : 0;
   const snapshot = deepFreeze(structuredClone(game.model));
+  const snapshotDone = profiling ? performance.now() : 0;
   const proposals = proposalsForPhase(game, snapshot, activeRules);
+  const proposalsDone = profiling ? performance.now() : 0;
 
   commitEffects(game, snapshot, proposals);
+  const commitDone = profiling ? performance.now() : 0;
   assertModel(game.model);
+  if (profiling) {
+    const assertDone = performance.now();
+    console.log('PERF_PHASE', JSON.stringify({
+      phase,
+      rules: activeRules.map(rule => rule.id),
+      proposals: proposals.length,
+      snapshotMs: snapshotDone - phaseStart,
+      rulesMs: proposalsDone - snapshotDone,
+      commitMs: commitDone - proposalsDone,
+      assertMs: assertDone - commitDone,
+      totalMs: assertDone - phaseStart,
+    }));
+  }
 }
 
 export function step(game: Game, rules: readonly Rule[] = defaultRules): Game {
