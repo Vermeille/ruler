@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue';
-import { MUTABLE_FIELDS, type Effect, type Game, type Metric, type MutableField } from '../sim/types';
+import { MUTABLE_FIELDS, type Effect, type Metric, type MutableField } from '../sim/types';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import { createGame } from '../sim/world';
 import RuleLens from './RuleLens.vue';
@@ -37,7 +37,6 @@ const PERCENT_FIELDS = new Set<MutableField>([
   'businessHealth',
 ]);
 
-const MAX_INSPECTION_OFFSET = 3;
 const seed = ref('dev-lab');
 const width = ref(18);
 const height = ref(14);
@@ -49,15 +48,10 @@ const selectedRuleId = ref('all');
 const selectedEffectIndex = ref(0);
 const effectFilter = ref('');
 const selectedCellId = ref(firstLandCellId());
-const inspectionOffset = ref(0);
 const navigationNote = ref('');
 
 const trace = computed(() => traceStep(game.value));
-const inspectionGame = computed(() => previewGame(inspectionOffset.value));
-const inspectionTrace = computed(() => (
-  inspectionOffset.value === 0 ? trace.value : traceStep(inspectionGame.value)
-));
-const currentPhase = computed(() => inspectionTrace.value.phases[selectedPhaseIndex.value]);
+const currentPhase = computed(() => trace.value.phases[selectedPhaseIndex.value]);
 const activeRuleId = computed(() => {
   const phase = currentPhase.value;
   if (!phase) return '';
@@ -68,16 +62,7 @@ const activeRuleId = computed(() => {
 const activeRule = computed(() => (
   currentPhase.value?.rules.find(rule => rule.id === activeRuleId.value)
 ));
-const landCells = computed(() => inspectionGame.value.model.cells.filter(cell => cell.biome !== 'water'));
-
-function previewGame(offset: number): Game {
-  let preview = game.value;
-  for (let step = 0; step < offset; step += 1) {
-    if (preview.ended) break;
-    preview = traceStep(preview).result;
-  }
-  return preview;
-}
+const landCells = computed(() => game.value.model.cells.filter(cell => cell.biome !== 'water'));
 
 function firstLandCellId(): number {
   return game.value?.model.cells.find(cell => cell.biome !== 'water')?.id
@@ -193,33 +178,18 @@ function navigateToRule(target: {
   monthDelta: number;
   via: string;
 }): void {
-  const targetOffset = inspectionOffset.value + target.monthDelta;
-  if (targetOffset < 0) {
-    navigationNote.value = `${target.ruleId} is an upstream writer from the previous tick. That tick is not retained before the current committed state.`;
-    return;
-  }
-  if (targetOffset > MAX_INSPECTION_OFFSET) {
-    navigationNote.value = `Navigation is capped at ${MAX_INSPECTION_OFFSET} preview months so the browser does not accidentally become a small climate model.`;
-    return;
-  }
-
-  inspectionOffset.value = targetOffset;
-  const phaseIndex = inspectionTrace.value.phases.findIndex(phase => phase.phase === target.phase);
+  const phaseIndex = trace.value.phases.findIndex(phase => phase.phase === target.phase);
   if (phaseIndex < 0) {
-    navigationNote.value = `Could not find phase ${target.phase} in this preview.`;
+    navigationNote.value = `Could not find phase ${target.phase} in the current month.`;
     return;
   }
 
   selectedPhaseIndex.value = phaseIndex;
   inspectedRuleId.value = target.ruleId;
   selectedRuleId.value = 'all';
-  navigationNote.value = `Followed ${target.via} → ${target.ruleId}.`;
-}
-
-function returnToCurrentPreview(): void {
-  inspectionOffset.value = 0;
-  selectedPhaseIndex.value = Math.min(selectedPhaseIndex.value, trace.value.phases.length - 1);
-  navigationNote.value = '';
+  navigationNote.value = target.monthDelta === 0
+    ? `Followed ${target.via} → ${target.ruleId}.`
+    : `Followed ${target.via} → ${target.ruleId}; showing its current-month value.`;
 }
 
 const cellChanges = computed(() => {
@@ -240,7 +210,6 @@ const cellChanges = computed(() => {
 function reset(): void {
   game.value = createGame(seed.value.trim(), width.value, height.value, mandate.value);
   selectedPhaseIndex.value = 0;
-  inspectionOffset.value = 0;
   navigationNote.value = '';
   selectedCellId.value = firstLandCellId();
 }
@@ -249,7 +218,6 @@ function commitMonth(): void {
   if (game.value.ended) return;
   game.value = trace.value.result;
   selectedPhaseIndex.value = 0;
-  inspectionOffset.value = 0;
   navigationNote.value = '';
   if (game.value.model.cells[selectedCellId.value]?.biome === 'water') {
     selectedCellId.value = firstLandCellId();
@@ -267,7 +235,7 @@ function previousPhase(): void {
 }
 
 function nextPhase(): void {
-  selectedPhaseIndex.value = Math.min(inspectionTrace.value.phases.length - 1, selectedPhaseIndex.value + 1);
+  selectedPhaseIndex.value = Math.min(trace.value.phases.length - 1, selectedPhaseIndex.value + 1);
   navigationNote.value = '';
 }
 
@@ -325,13 +293,9 @@ function json(value: unknown): string {
       <button class="dev-button primary" :disabled="game.ended" @click="commitMonth">
         Commit month {{ game.model.tick + 1 }}
       </button>
-      <button v-if="inspectionOffset > 0" class="dev-button" @click="returnToCurrentPreview">
-        Return to month {{ game.model.tick + 1 }}
-      </button>
       <div class="dev-state-badge">
         <strong>tick {{ game.model.tick }}</strong>
-        <span v-if="inspectionOffset">inspecting +{{ inspectionOffset }} preview {{ inspectionOffset === 1 ? 'month' : 'months' }}</span>
-        <span v-else>{{ game.model.width }}×{{ game.model.height }} · {{ game.model.cells.length }} cells</span>
+        <span>{{ game.model.width }}×{{ game.model.height }} · {{ game.model.cells.length }} cells</span>
       </div>
     </section>
 
@@ -339,10 +303,10 @@ function json(value: unknown): string {
       <aside class="dev-phases">
         <div class="dev-panel-heading">
           <span>Execution</span>
-          <strong>Month {{ inspectionGame.model.tick + 1 }}</strong>
+          <strong>Month {{ game.model.tick + 1 }}</strong>
         </div>
         <button
-          v-for="(phase, index) in inspectionTrace.phases"
+          v-for="(phase, index) in trace.phases"
           :key="phase.phase"
           class="phase-button"
           :class="{ active: index === selectedPhaseIndex }"
@@ -359,14 +323,14 @@ function json(value: unknown): string {
       <section v-if="currentPhase" class="dev-main-panel">
         <div class="phase-title-row">
           <div>
-            <span class="dev-kicker">MONTH {{ inspectionGame.model.tick + 1 }} · PHASE {{ selectedPhaseIndex + 1 }} / {{ inspectionTrace.phases.length }}</span>
+            <span class="dev-kicker">MONTH {{ game.model.tick + 1 }} · PHASE {{ selectedPhaseIndex + 1 }} / {{ trace.phases.length }}</span>
             <h2>{{ currentPhase.phase }}</h2>
             <p>All rules below read the same immutable snapshot. Their effects settle together before the next phase can read the result.</p>
             <p v-if="navigationNote" class="dev-note">{{ navigationNote }}</p>
           </div>
           <div class="phase-nav">
             <button class="dev-icon-button" :disabled="selectedPhaseIndex === 0" @click="previousPhase">←</button>
-            <button class="dev-icon-button" :disabled="selectedPhaseIndex === inspectionTrace.phases.length - 1" @click="nextPhase">→</button>
+            <button class="dev-icon-button" :disabled="selectedPhaseIndex === trace.phases.length - 1" @click="nextPhase">→</button>
           </div>
         </div>
 
@@ -400,7 +364,7 @@ function json(value: unknown): string {
 
         <RuleLens
           v-if="activeRuleId"
-          :game="inspectionGame"
+          :game="game"
           :phase="currentPhase"
           :rule-id="activeRuleId"
           @navigate-rule="navigateToRule"
