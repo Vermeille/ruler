@@ -1,0 +1,135 @@
+.dev-main-panel,
+.rule-lens,
+.rule-lens > *,
+.sensitivity-card,
+.footprint-card,
+.downstream-card,
+.lens-section-heading > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dev-main-panel,
+.rule-lens {
+  overflow: hidden;
+}
+
+.sensitivity-row,
+.sensitivity-detail,
+.sensitivity-detail > div {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sensitivity-label strong,
+.sensitivity-detail strong,
+.sensitivity-detail small {
+  overflow-wrap: anywhere;
+}
+
+.causal-details {
+  min-width: 0;
+  border: 1px solid #253247;
+  border-radius: 10px;
+  background: rgba(8, 13, 22, 0.7);
+  overflow: hidden;
+}
+
+.causal-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  color: #a9b8cc;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.causal-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.causal-details > summary::after {
+  content: '▸';
+  color: #6dcddd;
+  transition: transform 120ms ease;
+}
+
+.causal-details[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.causal-details > summary span {
+  margin-left: auto;
+  color: #728299;
+  font-weight: 500;
+}
+
+.causal-details .sensitivity-card {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid #253247;
+  border-radius: 0;
+  background: transparent;
+}
+
+.footprint-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: -2px 0 11px;
+  color: #77869d;
+  font-size: 0.69rem;
+}
+
+.footprint-key span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footprint-key i {
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 3px;
+}
+
+.footprint-key .footprint-low {
+  background: hsl(219 19% 17%);
+}
+
+.footprint-key .footprint-high {
+  background: hsl(187 72% 58%);
+}
+
+.footprint-key b {
+  color: #e2fbff;
+  font-size: 1rem;
+}
+
+.footprint-key strong {
+  margin-left: auto;
+  color: #c8dbe4;
+}
+
+@media (max-width: 760px) {
+  .causal-details > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .causal-details > summary span {
+    margin-left: 0;
+  }
+
+  .footprint-key strong {
+    width: 100%;
+    margin-left: 0;
+  }
+}
