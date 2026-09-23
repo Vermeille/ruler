@@ -22,7 +22,6 @@ const emit = defineEmits<{
   navigateRule: [target: {
     ruleId: string;
     phase: string;
-    monthDelta: number;
     via: string;
   }];
 }>();
@@ -171,7 +170,6 @@ function navigateConsumer(consumer: RuleConsumer): void {
   emit('navigateRule', {
     ruleId: consumer.ruleId,
     phase: consumer.phase,
-    monthDelta: 0,
     via: `${consumer.month} consumer`,
   });
 }
@@ -180,7 +178,6 @@ function navigateProducer(producer: RuleProducer): void {
   emit('navigateRule', {
     ruleId: producer.ruleId,
     phase: producer.phase,
-    monthDelta: 0,
     via: `${producer.month} producer`,
   });
 }
