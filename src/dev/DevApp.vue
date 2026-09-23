@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue';
-import { MUTABLE_FIELDS, PHASES, type Effect, type Metric, type MutableField } from '../sim/types';
+import { MUTABLE_FIELDS, type Effect, type Metric, type MutableField } from '../sim/types';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import { createGame } from '../sim/world';
 import './devtools.css';
