@@ -2,42 +2,64 @@ import { clamp } from '../math';
 import type { Archetype, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
 
+type LocalConditions = {
+  foodSecurity: number;
+  price: number;
+  crime: number;
+  pollution: number;
+  education: number;
+  population: number;
+  housing: number;
+  culture: number;
+};
+
 function livedWellbeing(
   group: Readonly<PopulationGroup>,
   archetype: Archetype,
-  cell: { foodSecurity: number; price: number; crime: number; pollution: number; education: number; population: number },
-  cultureFunding: number,
+  cell: LocalConditions,
 ): number {
   const buffer = clamp(group.wealth / 35);
   const food = clamp(cell.foodSecurity + buffer * 0.08 - Math.max(0, cell.price - 1) * (1 - buffer) * 0.12);
   const purchasingPower = clamp((group.income + Math.min(group.wealth, 30) * 0.08) / (6 * cell.price));
-  const components: [number, number][] = [
-    [archetype.needs.food, food],
-    [archetype.needs.income, purchasingPower],
-    [archetype.needs.employment, group.lifeStage === 'adult' ? (group.employed ? 1 : 0.2) : 0.7],
-    [archetype.needs.health, group.health],
-    [archetype.needs.safety, 1 - cell.crime],
-    [archetype.needs.housing, clamp(1 - cell.population / 20_000)],
-    [archetype.needs.education, cell.education],
-    [archetype.needs.environment, 1 - cell.pollution],
-    [archetype.needs.culture, clamp(0.5 + cultureFunding)],
-  ];
-  const weight = components.reduce((sum, [need]) => sum + need, 0);
-  return components.reduce((sum, [need, outcome]) => sum + need * outcome, 0) / weight;
+  const employment = group.lifeStage === 'adult' ? (group.employed ? 1 : 0.2) : 0.7;
+  const needs = archetype.needs;
+  const weight = needs.food + needs.income + needs.employment + needs.health + needs.safety
+    + needs.housing + needs.education + needs.environment + needs.culture;
+  return (
+    needs.food * food
+    + needs.income * purchasingPower
+    + needs.employment * employment
+    + needs.health * group.health
+    + needs.safety * (1 - cell.crime)
+    + needs.housing * cell.housing
+    + needs.education * cell.education
+    + needs.environment * (1 - cell.pollution)
+    + needs.culture * cell.culture
+  ) / weight;
 }
 
-/** Shadow-mode human experience: group circumstances change through Effects; legacy cell indices still drive gameplay. */
+/** Group circumstances change through Effects; mapxel conditions are the environment people experience. */
 export const populationExperienceRule: Rule = {
   id: 'population.experience',
   phase: 'experience',
   description: 'Employment, purchasing power, health, services and local conditions change group income, wealth, wellbeing and approval.',
   run({ model }) {
-    return model.cells.flatMap(cell => {
-      if (cell.biome === 'water') return [];
-      const groups = model.populationGroups[cell.id];
-      const cultureFunding = model.policy.spending.culture * model.budget.funding;
+    const effects = [];
+    const cultureFunding = model.policy.spending.culture * model.budget.funding;
+    for (const cell of model.cells) {
+      if (cell.biome === 'water') continue;
       const macroWealth = cell.cash / cell.population;
-      return groups.map(group => {
+      const conditions: LocalConditions = {
+        foodSecurity: cell.foodSecurity,
+        price: cell.price,
+        crime: cell.crime,
+        pollution: cell.pollution,
+        education: cell.education,
+        population: cell.population,
+        housing: clamp(1 - cell.population / 20_000),
+        culture: clamp(0.5 + cultureFunding),
+      };
+      for (const group of model.populationGroups[cell.id]) {
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
         const incomeTarget = group.lifeStage === 'adult' && group.employed
           ? cell.output / cell.population * (0.8 + group.education * 0.3)
@@ -51,7 +73,7 @@ export const populationExperienceRule: Rule = {
         const educationTarget = clamp(cell.education + (archetype.affinities.education - 0.5) * 0.18);
         const educationChange = (educationTarget - group.education)
           * (group.lifeStage === 'child' ? 0.02 : group.lifeStage === 'adult' ? 0.005 : 0);
-        const wellbeingTarget = livedWellbeing(group, archetype, cell, cultureFunding);
+        const wellbeingTarget = livedWellbeing(group, archetype, conditions);
         const wellbeingChange = (wellbeingTarget - group.wellbeing) * 0.1;
         const assemblyAgreement = model.policy.laws.publicAssembly
           ? group.attitudes.civicLiberty * 0.035
@@ -70,7 +92,7 @@ export const populationExperienceRule: Rule = {
           + (1 - group.wellbeing) * 0.1);
         const traditionalismTarget = clamp(archetype.values.traditionalism
           + (1 - group.wellbeing) * 0.05);
-        return {
+        effects.push({
           kind: 'population-state' as const,
           cell: cell.id,
           group: group.id,
@@ -100,8 +122,9 @@ export const populationExperienceRule: Rule = {
               { cell: cell.id, field: 'price' as const, label: 'Food price' },
             ],
           } : undefined,
-        };
-      });
-    });
+        });
+      }
+    }
+    return effects;
   },
 };
