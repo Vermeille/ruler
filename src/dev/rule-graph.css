@@ -18,8 +18,7 @@
 .rule-graph-scroll {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   border: 1px solid #202c3f;
   border-radius: 10px;
   background:
@@ -32,12 +31,15 @@
 .rule-graph {
   display: block;
   width: 100%;
-  min-width: 980px;
+  min-width: 0;
+  height: auto;
+  min-height: 0 !important;
+  aspect-ratio: 1360 / 594;
 }
 
 .graph-column-label {
   fill: #6d7c93;
-  font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 700 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.09em;
 }
 
@@ -64,7 +66,7 @@
 
 .graph-feedback-label {
   fill: #c7a7fb;
-  font: 700 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .rule-graph-node {
@@ -116,30 +118,30 @@
 
 .graph-node-title {
   fill: #e3edf8;
-  font: 700 13px ui-sans-serif, system-ui, sans-serif;
+  font: 700 15px ui-sans-serif, system-ui, sans-serif;
   pointer-events: none;
 }
 
 .graph-node-meta {
   fill: #7e8da5;
-  font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 600 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   pointer-events: none;
 }
 
 .graph-rule-kicker {
   fill: #77cddd;
-  font: 800 10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 800 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.14em;
 }
 
 .graph-rule-title {
   fill: #f0fbff;
-  font: 800 16px ui-sans-serif, system-ui, sans-serif;
+  font: 800 18px ui-sans-serif, system-ui, sans-serif;
 }
 
 .graph-rule-meta {
   fill: #9eb5c7;
-  font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 600 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .rule-graph-legend {
@@ -183,8 +185,7 @@
   line-height: 1.45;
 }
 
-@media (max-width: 900px) {
-  .rule-graph {
-    width: 1120px;
-  }
+@media (max-width: 760px) {
+  .graph-node-title { font-size: 16px; }
+  .graph-node-meta { font-size: 13px; }
 }
