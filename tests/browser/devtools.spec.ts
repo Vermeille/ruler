@@ -10,26 +10,32 @@ test('simulation workbench explains rules visually and preserves the forensic in
 
   const phases = page.locator('.dev-phases');
   const lens = page.locator('.rule-lens');
+  const graph = lens.locator('.rule-graph-card');
   await expect(phases.getByRole('button', { name: /production/ })).toBeVisible();
   await expect(phases.getByRole('button', { name: /events/ })).toBeVisible();
 
   await expect(lens).toContainText('economy.production');
-  await expect(lens.locator('.sensitivity-card')).toContainText('Random · Weather');
-  const productionBar = lens.locator('.sensitivity-bar i').first();
-  await expect(productionBar).toBeVisible();
-  expect((await productionBar.boundingBox())?.width ?? 0).toBeGreaterThan(40);
-  await expect(lens.locator('.sensitivity-score strong').first()).toContainText('100');
+  await expect(graph).toBeVisible();
+  await expect(graph.locator('.rule-graph-node-input')).toContainText(['Random · Weather']);
+  await expect(graph.locator('.rule-graph-node-output').first()).toBeVisible();
+  const productionInputEdge = graph.locator('.rule-graph-edge-input').first();
+  await expect(productionInputEdge).toBeVisible();
+  expect(Number(await productionInputEdge.getAttribute('stroke-width'))).toBeGreaterThan(1.5);
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
+
+  const lensContained = await lens.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
+  expect(lensContained).toBe(true);
 
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
   await expect(lens).toContainText('society.migration');
-  await expect(lens.locator('.sensitivity-card')).toContainText('Cell Happiness');
-  await expect(lens.locator('.rule-output-strip')).toContainText('Population Flow');
-  const migrationBar = lens.locator('.sensitivity-bar i').first();
-  await expect(migrationBar).toBeVisible();
-  expect((await migrationBar.boundingBox())?.width ?? 0).toBeGreaterThan(40);
-  await expect(lens.locator('.sensitivity-score strong').first()).toContainText('100');
+  await expect(graph.locator('.rule-graph-node-input')).toContainText(['Cell Happiness']);
+  await expect(graph.locator('.rule-graph-node-output')).toContainText(['Population Flow']);
+  await expect(graph.locator('.rule-graph-node-consumer').first()).toBeVisible();
+  await expect(graph.locator('.rule-graph-feedback-edge')).toBeVisible();
+  await expect(graph).toContainText('t → t+1 feedback');
+  await expect(lens).toContainText('MAP WRITES');
+  await expect(lens).toContainText('Bright cells simply mean this rule writes more strongly there');
   await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
   expect(await lens.locator('.footprint-flow').count()).toBeGreaterThan(0);
   await expect(lens.locator('.flow-rank-row').first()).toBeVisible();
