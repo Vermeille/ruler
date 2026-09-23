@@ -7,7 +7,7 @@ import LedgerPanel from './LedgerPanel.vue';
 import TrendsPanel from './TrendsPanel.vue';
 import RulesPanel from './RulesPanel.vue';
 
-const props = defineProps<{
+defineProps<{
   game: Game;
   selected: Set<number>;
 }>();
