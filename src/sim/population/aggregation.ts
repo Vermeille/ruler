@@ -16,7 +16,6 @@ import {
 export const populationAggregationRule: Rule = {
   id: 'population.aggregate',
   phase: 'events',
-  after: ['stories.events'],
   description: 'Project settled population groups into mapxel employment, wellbeing, approval, demographics, and occupational shares.',
   run({ model }) {
     return model.cells.flatMap(cell => {
