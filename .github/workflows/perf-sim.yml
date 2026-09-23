@@ -3,6 +3,10 @@ name: Simulation performance probe
 on:
   pull_request:
 
+concurrency:
+  group: perf-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   perf:
     runs-on: ubuntu-latest
