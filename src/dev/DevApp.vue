@@ -3,6 +3,7 @@ import { computed, ref, shallowRef, watch } from 'vue';
 import { MUTABLE_FIELDS, type Effect, type Metric, type MutableField } from '../sim/types';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import { createGame } from '../sim/world';
+import RuleLens from './RuleLens.vue';
 import './devtools.css';
 
 const SUMMARY_METRICS: { key: Metric; label: string; percent?: boolean }[] = [
@@ -49,6 +50,12 @@ const selectedCellId = ref(firstLandCellId());
 
 const trace = computed(() => traceStep(game.value));
 const currentPhase = computed(() => trace.value.phases[selectedPhaseIndex.value]);
+const activeRuleId = computed(() => {
+  const phase = currentPhase.value;
+  if (!phase) return '';
+  if (selectedRuleId.value !== 'all') return selectedRuleId.value;
+  return phase.rules[0]?.id ?? '';
+});
 const landCells = computed(() => game.value.model.cells.filter(cell => cell.biome !== 'water'));
 
 function firstLandCellId(): number {
@@ -215,7 +222,7 @@ function json(value: unknown): string {
       <div>
         <span class="dev-kicker">COMMONWEALTH / SIMULATION WORKBENCH</span>
         <h1>See the engine think.</h1>
-        <p>Preview the next month phase by phase. Nothing advances until you commit the traced month.</p>
+        <p>Follow each rule from the data it reads, through its local sensitivities and effects, into the later phases it changes.</p>
       </div>
       <a class="dev-player-link" href="/">← Player UI</a>
     </header>
@@ -281,6 +288,13 @@ function json(value: unknown): string {
           </div>
         </div>
 
+        <RuleLens
+          v-if="activeRuleId"
+          :game="game"
+          :phase="currentPhase"
+          :rule-id="activeRuleId"
+        />
+
         <div class="dev-summary-grid">
           <article v-for="metric in SUMMARY_METRICS" :key="metric.key" class="summary-card">
             <span>{{ metric.label }}</span>
@@ -294,8 +308,8 @@ function json(value: unknown): string {
         <section class="dev-section">
           <div class="dev-section-heading">
             <div>
-              <span class="dev-kicker">RULES</span>
-              <h3>Who proposed what?</h3>
+              <span class="dev-kicker">RAW RULES</span>
+              <h3>Forensic view</h3>
             </div>
             <div class="phase-side-stats">
               <span>{{ currentPhase.causesAdded }} causes</span>
@@ -326,7 +340,7 @@ function json(value: unknown): string {
         <section class="dev-section effect-section">
           <div class="dev-section-heading">
             <div>
-              <span class="dev-kicker">PROPOSALS</span>
+              <span class="dev-kicker">RAW PROPOSALS</span>
               <h3>{{ filteredEffects.length }} effects before settlement</h3>
             </div>
             <input v-model="effectFilter" class="effect-filter" aria-label="Filter effects" placeholder="Filter rule, kind, cell, field…" />
@@ -413,7 +427,7 @@ function json(value: unknown): string {
 
     <footer class="dev-footer">
       <span>Access this workbench with <code>?dev=1</code>.</span>
-      <span>Preview is deterministic for a given seed, tick, ruleset, cell, and channel.</span>
+      <span>Sensitivity is local to this exact seed, tick, rule inputs, and random stream.</span>
     </footer>
   </div>
 </template>
