@@ -15,7 +15,7 @@ function averageNeighborWealth(
 export const societyRule: Rule = {
   id: 'society.wellbeing',
   phase: 'society',
-  description: 'Poverty and neighboring inequality drive crime; services, health, food, and civil liberties shape wellbeing.',
+  description: 'Poverty and neighboring inequality drive crime; services, health, food, employment, and civil liberties shape wellbeing.',
   run({ model }) {
     return model.cells.filter(isLand).flatMap(cell => {
       const spending = model.policy.spending;
