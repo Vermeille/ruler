@@ -14,6 +14,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectOutput: [key: string];
   selectSensitivity: [key: string];
+  inspectInput: [key: string];
+  navigateRule: [consumer: RuleConsumer];
 }>();
 
 const GRAPH_WIDTH = 1360;
@@ -179,6 +181,7 @@ function outputValue(key: string): string {
 
 function selectInput(row: GraphInput): void {
   if (row.sensitivity) emit('selectSensitivity', row.sensitivity.key);
+  emit('inspectInput', row.key);
 }
 </script>
 
@@ -190,8 +193,8 @@ function selectInput(row: GraphInput): void {
         <h4>What feeds this rule, and what does it feed?</h4>
       </div>
       <p>
-        Input edges show the local gradient for the selected output. Click an output node to change the question.
-        Consumer edges are exact state-path dependencies; the loop is a next-tick feedback into this same rule.
+        Click an input to follow its upstream writer, an output to change the gradient question,
+        or a consumer to recenter the workbench on that rule.
       </p>
     </div>
 
@@ -296,18 +299,15 @@ function selectInput(row: GraphInput): void {
           v-for="(row, index) in graphInputs"
           :key="`input:${row.key}`"
           class="rule-graph-node rule-graph-node-input"
-          :class="{
-            selected: row.sensitivity?.key === selectedSensitivityKey,
-            inert: !row.sensitivity,
-          }"
+          :class="{ selected: row.sensitivity?.key === selectedSensitivityKey }"
           :transform="`translate(${INPUT_X} ${laneY(index, graphInputs.length)})`"
           role="button"
-          :tabindex="row.sensitivity ? 0 : -1"
+          tabindex="0"
           @click="selectInput(row)"
           @keydown.enter.prevent="selectInput(row)"
           @keydown.space.prevent="selectInput(row)"
         >
-          <title>{{ row.label }}</title>
+          <title>{{ row.label }} · click to follow upstream</title>
           <rect :width="INPUT_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(row.label, 29) }}</text>
           <text x="12" y="34" class="graph-node-meta">
@@ -351,8 +351,13 @@ function selectInput(row: GraphInput): void {
           class="rule-graph-node rule-graph-node-consumer"
           :class="{ next: consumer.month === 'next month' }"
           :transform="`translate(${CONSUMER_X} ${laneY(index, graphConsumers.length)})`"
+          role="button"
+          tabindex="0"
+          @click="emit('navigateRule', consumer)"
+          @keydown.enter.prevent="emit('navigateRule', consumer)"
+          @keydown.space.prevent="emit('navigateRule', consumer)"
         >
-          <title>{{ consumer.ruleId }} reads {{ consumer.paths.map(path => path.label).join(', ') }}</title>
+          <title>{{ consumer.ruleId }} reads {{ consumer.paths.map(path => path.label).join(', ') }} · click to inspect</title>
           <rect :width="CONSUMER_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(consumer.ruleId, 27) }}</text>
           <text x="12" y="34" class="graph-node-meta">
