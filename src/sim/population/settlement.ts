@@ -136,6 +136,100 @@ function changedGroup(source: DeepReadonly<PopulationGroup>, effect: GroupEffect
   return group;
 }
 
+function removeGroup(model: Model, cell: number, id: number): void {
+  const groups = model.populationGroups[cell];
+  const index = groups.findIndex(group => group.id === id);
+  if (index >= 0) groups.splice(index, 1);
+}
+
+function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta'; cause: 'birth' }>, amount: number): number {
+  const id = model.nextPopulationGroupId++;
+  model.populationGroups[effect.cell].push({
+    ...effect.state!,
+    attitudes: { ...effect.state!.attitudes },
+    id,
+    archetype: effect.archetype!,
+    count: amount,
+  });
+  model.cells[effect.cell].population += amount;
+  return id;
+}
+
+function independentGroupEffects(effects: readonly PopulationEffect[], plan: PopulationPlan): boolean {
+  for (const effect of effects) {
+    if (!isGroupEffect(effect)) continue;
+    if (Math.abs((plan.demands.get(effect.group) ?? 0) - effect.amount) > 1e-9) return false;
+  }
+  return true;
+}
+
+function settleIndependentPopulation(
+  model: Model,
+  effects: readonly PopulationEffect[],
+  plan: PopulationPlan,
+): PopulationOutcome[] {
+  const liveGroups = new Map<number, PopulationGroup>();
+  model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
+  const outcomes: PopulationOutcome[] = [];
+
+  for (const effect of effects) {
+    if (!isGroupEffect(effect)) {
+      const id = addBirth(model, effect, effect.amount);
+      outcomes.push({ actual: effect.amount, resultingGroup: id });
+      continue;
+    }
+
+    const cell = sourceCell(effect);
+    const source = groupIn(plan.groups, cell, effect.group);
+    const live = liveGroups.get(effect.group)!;
+    const actual = Math.min(effect.amount, source.count);
+    const outcome: PopulationOutcome = { actual };
+
+    if (actual <= 1e-12) {
+      outcomes.push(outcome);
+      continue;
+    }
+
+    if (effect.kind === 'population-delta') {
+      live.count = Math.max(0, source.count - actual);
+      model.cells[cell].population -= actual;
+      if (live.count <= 1e-12) removeGroup(model, cell, live.id);
+      outcomes.push(outcome);
+      continue;
+    }
+
+    const whole = Math.abs(source.count - actual) <= 1e-9;
+    if (whole) {
+      if (effect.kind === 'population-transfer') {
+        removeGroup(model, cell, live.id);
+        model.populationGroups[effect.to].push(live);
+        model.cells[cell].population -= actual;
+        model.cells[effect.to].population += actual;
+      } else {
+        applyGroupChange(live, source, effect);
+      }
+      outcome.resultingGroup = live.id;
+      outcomes.push(outcome);
+      continue;
+    }
+
+    live.count = Math.max(0, source.count - actual);
+    const child = changedGroup(source, effect);
+    child.id = model.nextPopulationGroupId++;
+    child.count = actual;
+    outcome.resultingGroup = child.id;
+    const destination = effect.kind === 'population-transfer' ? effect.to : cell;
+    model.populationGroups[destination].push(child);
+    if (effect.kind === 'population-transfer') {
+      model.cells[cell].population -= actual;
+      model.cells[destination].population += actual;
+    }
+    outcomes.push(outcome);
+  }
+
+  return outcomes;
+}
+
 /** Settle all requests from phase-start groups. New children are never source groups in this phase. */
 export function settlePopulation(
   model: Model,
@@ -143,6 +237,10 @@ export function settlePopulation(
   plan: PopulationPlan,
 ): PopulationOutcome[] {
   if (effects.length === 0) return [];
+  if (independentGroupEffects(effects, plan)) {
+    return settleIndependentPopulation(model, effects, plan);
+  }
+
   const liveGroups = new Map<number, PopulationGroup>();
   model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
   const actuals = effects.map(effect => {
@@ -171,7 +269,7 @@ export function settlePopulation(
 
     if (whole && only && only.kind !== 'population-delta') {
       if (only.kind === 'population-transfer') {
-        model.populationGroups[cell] = model.populationGroups[cell].filter(group => group.id !== live.id);
+        removeGroup(model, cell, live.id);
         model.populationGroups[only.to].push(live);
         model.cells[cell].population -= consumed;
         model.cells[only.to].population += consumed;
@@ -202,21 +300,12 @@ export function settlePopulation(
         model.cells[destination].population += amount;
       }
     });
-    if (live.count <= 1e-12) model.populationGroups[cell] = model.populationGroups[cell].filter(group => group.id !== live.id);
+    if (live.count <= 1e-12) removeGroup(model, cell, live.id);
   }
 
   effects.forEach((effect, index) => {
     if (effect.kind !== 'population-delta' || effect.cause !== 'birth' || actuals[index] <= 0) return;
-    const id = model.nextPopulationGroupId++;
-    model.populationGroups[effect.cell].push({
-      ...effect.state!,
-      attitudes: { ...effect.state!.attitudes },
-      id,
-      archetype: effect.archetype!,
-      count: actuals[index],
-    });
-    outcomes[index].resultingGroup = id;
-    model.cells[effect.cell].population += actuals[index];
+    outcomes[index].resultingGroup = addBirth(model, effect, actuals[index]);
   });
   return outcomes;
 }
