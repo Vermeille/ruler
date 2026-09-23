@@ -4,6 +4,7 @@ import type { Game } from '../sim/types';
 import type { PhaseTrace } from '../sim/trace';
 import { analyzeRule, type JacobianCell } from './rule-analysis';
 import { analyzeRuleInfluence } from './rule-influence';
+import RuleGraph from './RuleGraph.vue';
 import './rule-lens.css';
 
 const props = defineProps<{
@@ -140,7 +141,7 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
     <header class="rule-lens-header">
       <div>
         <span class="dev-kicker">CAUSAL LENS / {{ analysis.ruleId }}</span>
-        <h3>Inputs → rule → outputs → consumers</h3>
+        <h3>Inspect the rule as a node in the engine.</h3>
         <p>{{ analysis.description }}</p>
       </div>
       <div class="analysis-sampling">
@@ -150,151 +151,99 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
       </div>
     </header>
 
-    <nav v-if="analysis.outputs.length" class="rule-output-strip" aria-label="Rule outputs">
-      <span class="output-strip-label">OUTPUT</span>
-      <button
-        v-for="output in analysis.outputs"
-        :key="output.key"
-        :class="{ active: selectedOutputKey === output.key }"
-        @click="selectedOutputKey = output.key"
-      >
-        <span>{{ output.label }}</span>
-        <strong>{{ formatMagnitude(output.magnitude) }}</strong>
-        <small>{{ output.effects }} channels</small>
-      </button>
-    </nav>
+    <RuleGraph
+      :analysis="analysis"
+      :influence="influence"
+      :selected-output-key="selectedOutputKey"
+      :selected-sensitivity-key="selectedSensitivityKey"
+      @select-output="selectedOutputKey = $event"
+      @select-sensitivity="selectedSensitivityKey = $event"
+    />
 
-    <section class="sensitivity-card">
-      <div class="lens-section-heading">
-        <div>
-          <span class="dev-kicker">INPUTS</span>
-          <h4 v-if="selectedOutput">What drives {{ selectedOutput.label }} here?</h4>
-          <h4 v-else>What did this rule read before emitting nothing?</h4>
-        </div>
-        <p v-if="selectedOutput">
-          A small local nudge is applied to sampled reads, then the same rule runs again.
-          Bars are relative to the strongest input for this output.
-        </p>
-        <p v-else>
-          The rule emitted no effects in this state. Its actual reads are still shown so thresholds and inactive branches remain visible.
-        </p>
-      </div>
+    <details class="causal-details">
+      <summary>
+        Numerical sensitivity details
+        <span v-if="selectedOutput">for {{ selectedOutput.label }}</span>
+      </summary>
 
-      <div class="sensitivity-list" :class="{ inactive: !selectedOutput }">
-        <button
-          v-for="row in inputRows"
-          :key="row.input.key"
-          class="sensitivity-row"
-          :class="{
-            active: selectedSensitivityKey === row.sensitivity?.key,
-            inert: !row.sensitivity,
-          }"
-          @click="selectSensitivity(row.sensitivity)"
-        >
-          <div class="sensitivity-label">
-            <strong>{{ row.input.label }}</strong>
-            <small>{{ row.input.reads }} reads · {{ row.input.analyzed }} sampled</small>
+      <section class="sensitivity-card">
+        <div class="lens-section-heading">
+          <div>
+            <span class="dev-kicker">LOCAL SENSITIVITY</span>
+            <h4 v-if="selectedOutput">Why are those input edges thick or thin?</h4>
+            <h4 v-else>What did this rule read before emitting nothing?</h4>
           </div>
-          <div class="sensitivity-score">
-            <strong v-if="row.sensitivity">{{ Math.round(row.sensitivity.strength * 100) }}</strong>
-            <span v-else>0</span>
-          </div>
-          <div class="sensitivity-bar" aria-hidden="true">
-            <i
-              v-if="row.sensitivity"
-              :class="row.sensitivity.sign"
-              :style="{ width: sensitivityWidth(row.sensitivity) }"
-            />
-          </div>
-        </button>
-      </div>
-
-      <div v-if="selectedSensitivity" class="sensitivity-detail">
-        <div>
-          <span class="dev-kicker">CONCRETE READ</span>
-          <strong>{{ selectedSensitivity.example }}</strong>
-          <small>{{ selectedSensitivity.nudge }}</small>
+          <p v-if="selectedOutput">
+            A small local nudge is applied to sampled reads, then the same rule runs again.
+            100 is the strongest sampled local derivative for this selected output.
+          </p>
+          <p v-else>
+            The rule emitted no effects in this state. Its actual reads are still shown so thresholds and inactive branches remain visible.
+          </p>
         </div>
-        <div class="causal-arrow">→</div>
-        <div>
-          <span class="dev-kicker">OUTPUT RESPONSE</span>
-          <strong>{{ selectedOutput?.label }}</strong>
-          <small>
-            Δ {{ formatMagnitude(selectedSensitivity.response) }} · raw local derivative
-            {{ formatMagnitude(selectedSensitivity.derivative) }}
-          </small>
-        </div>
-      </div>
 
-      <div class="sensitivity-legend">
-        <span><i class="positive" /> increases output</span>
-        <span><i class="negative" /> decreases output</span>
-        <span><i class="mixed" /> mixed direction across concrete channels</span>
-        <span><strong>100</strong> = strongest sampled local input for this output</span>
-      </div>
-    </section>
-
-    <section class="influence-card">
-      <div class="lens-section-heading">
-        <div>
-          <span class="dev-kicker">DIRECT CONSUMERS</span>
-          <h4>Which rules read what {{ analysis.ruleId }} writes?</h4>
-        </div>
-        <p>
-          These are direct state dependencies, not inferred correlations. An edge appears only when a later rule actually reads an exact state path written by the selected output. Next-month self edges expose feedback loops.
-        </p>
-      </div>
-
-      <div class="influence-graph">
-        <article class="influence-source">
-          <span>THIS RULE</span>
-          <strong>{{ analysis.ruleId }}</strong>
-          <small>{{ selectedOutput?.label ?? 'no emitted output selected' }}</small>
-        </article>
-
-        <div class="influence-connector" aria-hidden="true">→</div>
-
-        <div v-if="influence.consumers.length" class="influence-consumers">
-          <article
-            v-for="consumer in influence.consumers"
-            :key="consumer.key"
-            class="influence-consumer"
-            :class="{ feedback: consumer.self }"
+        <div class="sensitivity-list" :class="{ inactive: !selectedOutput }">
+          <button
+            v-for="row in inputRows"
+            :key="row.input.key"
+            class="sensitivity-row"
+            :class="{
+              active: selectedSensitivityKey === row.sensitivity?.key,
+              inert: !row.sensitivity,
+            }"
+            @click="selectSensitivity(row.sensitivity)"
           >
-            <div class="influence-consumer-head">
-              <span>{{ consumer.month }} · {{ consumer.phase }}</span>
-              <em v-if="consumer.self">feedback</em>
+            <div class="sensitivity-label">
+              <strong>{{ row.input.label }}</strong>
+              <small>{{ row.input.reads }} reads · {{ row.input.analyzed }} sampled</small>
             </div>
-            <strong>{{ consumer.ruleId }}</strong>
-            <div class="influence-paths">
-              <span v-for="path in consumer.paths.slice(0, 3)" :key="`${consumer.key}:${path.source}:${path.path}`">
-                {{ path.label }}
-              </span>
-              <small v-if="consumer.paths.length > 3">+{{ consumer.paths.length - 3 }} more exact reads</small>
+            <div class="sensitivity-score">
+              <strong v-if="row.sensitivity">{{ Math.round(row.sensitivity.strength * 100) }}</strong>
+              <span v-else>0</span>
             </div>
-          </article>
+            <div class="sensitivity-bar" aria-hidden="true">
+              <i
+                v-if="row.sensitivity"
+                :class="row.sensitivity.sign"
+                :style="{ width: sensitivityWidth(row.sensitivity) }"
+              />
+            </div>
+          </button>
         </div>
 
-        <div v-else class="influence-empty">
-          No later rule reads an exact state path written by this selected output within this month or the next one.
+        <div v-if="selectedSensitivity" class="sensitivity-detail">
+          <div>
+            <span class="dev-kicker">CONCRETE READ</span>
+            <strong>{{ selectedSensitivity.example }}</strong>
+            <small>{{ selectedSensitivity.nudge }}</small>
+          </div>
+          <div class="causal-arrow">→</div>
+          <div>
+            <span class="dev-kicker">OUTPUT RESPONSE</span>
+            <strong>{{ selectedOutput?.label }}</strong>
+            <small>
+              Δ {{ formatMagnitude(selectedSensitivity.response) }} · raw local derivative
+              {{ formatMagnitude(selectedSensitivity.derivative) }}
+            </small>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </details>
 
     <section class="footprint-card">
       <div class="lens-section-heading">
         <div>
-          <span class="dev-kicker">MAP EFFECTS</span>
-          <h4>Where does this rule write on the map?</h4>
+          <span class="dev-kicker">MAP WRITES</span>
+          <h4>Where does the selected output modify map state?</h4>
         </div>
         <p>
-          This is not a population, wealth, or forecast map. Bright cells are mapxels where this rule is more active and that participate in the selected output. Arrows are actual transfers or trades from source to destination.
+          This is not a population, wealth, or forecast map. Bright cells simply mean this rule writes more strongly there in this execution. Arrows are literal transfers or trades between mapxels.
         </p>
       </div>
 
       <div class="footprint-key">
-        <span><i class="footprint-low" /> little or no rule activity</span>
-        <span><i class="footprint-high" /> stronger rule activity</span>
+        <span><i class="footprint-low" /> little or no write activity</span>
+        <span><i class="footprint-high" /> stronger write activity</span>
         <span><b>→</b> transfer / trade direction</span>
         <strong>{{ activeFootprintCount }} mapxels touched</strong>
       </div>
@@ -360,7 +309,7 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
       </div>
 
       <p v-if="!analysis.footprintCells.length" class="lens-note">
-        This output has no mapxel-local footprint. National budget/account effects remain national instead of being assigned fake geography.
+        This output has no mapxel-local writes. National budget/account effects remain national instead of being assigned fake geography.
       </p>
     </section>
 
@@ -371,7 +320,7 @@ function selectSensitivity(cell: JacobianCell | undefined): void {
           <h4>What actually changes if this rule does not run once?</h4>
         </div>
         <p>
-          Unlike the direct-consumer graph above, this includes indirect effects. The same world is simulated twice; only this execution of <code>{{ analysis.ruleId }}</code> is removed.
+          The graph above shows direct reads of this rule's writes. This section includes indirect consequences too: the same world is simulated twice, with only this rule execution removed from one branch.
         </p>
       </div>
 
