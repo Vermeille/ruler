@@ -74,7 +74,8 @@
 }
 
 .rule-graph-node-input,
-.rule-graph-node-output {
+.rule-graph-node-output,
+.rule-graph-node-consumer {
   cursor: pointer;
 }
 
@@ -87,16 +88,12 @@
 
 .rule-graph-node-input:hover rect,
 .rule-graph-node-output:hover rect,
+.rule-graph-node-consumer:hover rect,
 .rule-graph-node-input.selected rect,
 .rule-graph-node-output.selected rect {
   fill: #142536;
   stroke: #69cfdf;
   stroke-width: 2;
-}
-
-.rule-graph-node-input.inert {
-  cursor: default;
-  opacity: 0.58;
 }
 
 .rule-graph-node-rule rect {
