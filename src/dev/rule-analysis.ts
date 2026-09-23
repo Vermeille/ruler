@@ -378,6 +378,9 @@ function outputChannels(effects: readonly Effect[]): VectorChannel[] {
           value: effect.amount,
         });
         break;
+      case 'repayDebt':
+        channels.push({ key: 'repayDebt', groupKey: 'repayDebt.amount', groupLabel: 'Debt Repayment', value: effect.amount });
+        break;
       case 'trade':
         channels.push({
           key: `trade:${effect.from}:${effect.to}:${effect.resource}:amount`,
@@ -573,6 +576,7 @@ function effectCellActivity(
         if (effect.article.cell !== undefined) add(effect.article.cell, 1);
         break;
       case 'budget':
+      case 'repayDebt':
         break;
     }
   }
@@ -765,6 +769,7 @@ function outputKeyForEffect(effect: Effect): string {
   switch (effect.kind) {
     case 'delta': return `delta.${effect.field}`;
     case 'transfer': return `transfer.${effect.resource}`;
+    case 'repayDebt': return 'repayDebt.amount';
     case 'trade': return `trade.${effect.resource}.amount`;
     case 'budget': return 'budget.debtDelta';
     case 'event': return `event.${effect.key}`;

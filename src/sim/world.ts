@@ -4,6 +4,7 @@ import type { Game, Mapxel, Model, Policy } from './types';
 export const DEFAULT_POLICY: Policy = {
   incomeTax: 0.28,
   businessTax: 0.18,
+  minimumWage: 0,
   spending: {
     health: 0.3,
     education: 0.25,
@@ -23,6 +24,7 @@ export const DEFAULT_POLICY: Policy = {
     cleanAir: false,
     freeMovement: true,
     publicAssembly: true,
+    foodPriceControls: false,
   },
 };
 
@@ -143,11 +145,13 @@ function createCell(
     elevation,
     fertility,
     minerals: clamp(0.18 + elevation * 0.7),
+    waterStress: 0,
     population,
     cash: population * (25 + urban * 20 + randomAt(seed, id, 'wealth') * 10),
     food: population * (1.5 + agriculture),
     materials: population * 0.6,
     price: 1,
+    scarcityPrice: 1,
     children: 0.21,
     seniors: 0.16,
     education: 0.48 + urban * 0.15,
@@ -169,6 +173,7 @@ function createCell(
     foodUsed: 0,
     foodTraded: 0,
     businessHealth: 0.85,
+    starvationDeaths: 0,
   };
 }
 
@@ -261,7 +266,7 @@ export function createGame(
   const initial = summarize(model);
 
   return {
-    version: 1,
+    version: 3,
     model,
     initial,
     history: [{ tick: 0, summary: initial }],

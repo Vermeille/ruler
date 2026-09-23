@@ -14,7 +14,7 @@ export const taxationRule: Rule = {
     for (const cell of model.cells.filter(isLand)) {
       const effectiveTaxRate = 0.7 * model.policy.incomeTax
         + 0.3 * model.policy.businessTax;
-      const due = Math.min(cell.cash, cell.output * effectiveTaxRate);
+      const due = Math.max(0, Math.min(cell.cash, cell.output * effectiveTaxRate));
 
       revenue += due;
       effects.push({
@@ -83,6 +83,9 @@ export const fiscalRule: Rule = {
     const funding = forecast.spending > 0
       ? clamp(availableForServices / forecast.spending)
       : 1;
+    const reserve = model.cells.reduce((total, cell) => total + cell.population, 0) * 6;
+    const surplus = Math.max(0, availableForServices - forecast.spending * funding - reserve);
+    const principalRepaid = Math.min(model.debt, surplus);
     const effects: Effect[] = [
       {
         kind: 'transfer',
@@ -91,6 +94,7 @@ export const fiscalRule: Rule = {
         resource: 'cash',
         amount: interest,
       },
+      { kind: 'repayDebt', amount: principalRepaid },
     ];
     const serviceRate = Object.values(model.policy.spending)
       .reduce((sum, amount) => sum + amount, 0);

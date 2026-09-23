@@ -23,10 +23,12 @@ const lawInfo = {
   cleanAir: ['Clean Air Act', 'Lower industrial pollution, with a small manufacturing output cost.'],
   freeMovement: ['Freedom of movement', 'Allow residents to move toward nearby work and better living conditions.'],
   publicAssembly: ['Freedom of assembly', 'Protect civic life and public morale. Repeal carries a lasting wellbeing and approval cost.'],
+  foodPriceControls: ['Food price controls', 'Cap posted staple prices at ₡1. Scarcity may persist if farmers cannot respond to higher prices.'],
 } as const;
 
 const incomeTax = ref(props.game.model.policy.incomeTax * 100);
 const businessTax = ref(props.game.model.policy.businessTax * 100);
+const minimumWage = ref(props.game.model.policy.minimumWage);
 const service = ref<Service>('health');
 const serviceAmount = ref(props.game.model.policy.spending.health);
 const subsidySector = ref<(typeof SECTORS)[number]>('agriculture');
@@ -43,6 +45,7 @@ const policy = computed(() => props.game.model.policy);
 watch(() => props.game, () => {
   incomeTax.value = props.game.model.policy.incomeTax * 100;
   businessTax.value = props.game.model.policy.businessTax * 100;
+  minimumWage.value = props.game.model.policy.minimumWage;
   serviceAmount.value = props.game.model.policy.spending[service.value];
 });
 
@@ -67,6 +70,10 @@ function submitTaxes(): void {
 
 function submitSpending(): void {
   emit('preview', { type: 'spending', service: service.value, amount: Number(serviceAmount.value) });
+}
+
+function submitMinimumWage(): void {
+  emit('preview', { type: 'minimumWage', amount: Number(minimumWage.value) });
 }
 
 function submitSubsidy(): void {
@@ -135,6 +142,12 @@ const budgetNarrative = computed(() => props.game.model.tick === 0
           <label>₡ per resident / month<input id="service-amount" v-model.number="serviceAmount" name="amount" type="number" min="0" max="2" step="0.01" required /></label>
           <button class="outline" :disabled="game.ended">Review spending →</button>
         </form>
+        <form id="wage-form" class="policy-card" @submit.prevent="submitMinimumWage">
+          <span class="card-icon">₡</span><h3>Set a wage floor</h3><p>Firms compare the required pay with local production receipts after tax and imported inputs. A high floor can cut hiring.</p>
+          <label>₡ per worker / month<input v-model.number="minimumWage" name="amount" type="number" min="0" max="10" step="0.1" required /></label>
+          <button class="outline" :disabled="game.ended">Review wage floor →</button>
+          <small>Zero removes the floor. Employment responds over time.</small>
+        </form>
       </div>
 
       <div v-else-if="policyTab === 'development'" class="policy-grid">
@@ -177,9 +190,10 @@ const budgetNarrative = computed(() => props.game.model.tick === 0
         <div class="console-actions"><code>tax income 0.25</code><code>spend police 0.35</code><code>law cleanAir on</code><button class="primary" :disabled="game.ended">Preview command →</button></div>
         <details><summary>Command reference</summary><pre>tax income|business RATE               # 0–0.65
 spend SERVICE AMOUNT                   # 0–2 per resident
+wage minimum AMOUNT                    # 0–10 per worker
 subsidize SECTOR AMOUNT in SCOPE       # 0–3 per worker
 invest transport|hospital|school|stadium AMOUNT in SCOPE
-law cleanAir|freeMovement|publicAssembly on|off
+law cleanAir|freeMovement|publicAssembly|foodPriceControls on|off
 
 SCOPE: national | selected | region 0 (through 3)</pre></details>
       </form>

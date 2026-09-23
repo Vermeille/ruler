@@ -75,6 +75,8 @@ function effectTarget(effect: Effect): string {
       return `cell ${effect.cell} · ${effect.field}`;
     case 'transfer':
       return `${effect.from} → ${effect.to} · ${effect.resource}`;
+    case 'repayDebt':
+      return 'treasury → external · debt principal';
     case 'trade':
       return `${effect.from} → ${effect.to} · ${effect.resource}`;
     case 'budget':
@@ -88,6 +90,7 @@ function effectAmount(effect: Effect): string {
   switch (effect.kind) {
     case 'delta':
     case 'transfer':
+    case 'repayDebt':
       return signed(effect.amount);
     case 'trade':
       return `${effect.amount.toFixed(3)} @ ${effect.price.toFixed(2)}`;

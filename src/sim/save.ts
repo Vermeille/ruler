@@ -42,11 +42,40 @@ function parseSave(text: string): Record<string, unknown> {
     return fail();
   }
 
-  if (!isRecord(data) || data.version !== 1 || !isRecord(data.model)) {
+  if (!isRecord(data) || (data.version !== 1 && data.version !== 2 && data.version !== 3) || !isRecord(data.model)) {
     return fail();
   }
 
   return data;
+}
+
+function migrateSave(data: Record<string, unknown>): void {
+  const model = data.model as Record<string, unknown>;
+  if (!isRecord(model.policy)) return fail();
+
+  if (data.version === 1) {
+    if (!Array.isArray(model.cells)) return fail();
+    for (const cell of model.cells) {
+      if (!isRecord(cell) || !isFiniteNumber(cell.price)) return fail();
+      cell.waterStress = 0;
+      cell.starvationDeaths = 0;
+      cell.scarcityPrice = cell.price;
+    }
+    if (!isRecord(data.initial) || !Array.isArray(data.history) || !isRecord(model.policy.laws)) return fail();
+    data.initial.starvationDeaths = 0;
+    for (const entry of data.history) {
+      if (!isRecord(entry) || !isRecord(entry.summary)) return fail();
+      entry.summary.starvationDeaths = 0;
+    }
+    model.policy.laws.foodPriceControls = false;
+    data.version = 2;
+  }
+
+  if (data.version === 2) {
+    if ('minimumWage' in model.policy) return fail();
+    model.policy.minimumWage = 0;
+    data.version = 3;
+  }
 }
 
 function validateWorldIdentity(model: Record<string, unknown>): Game {
@@ -158,6 +187,8 @@ function validatePolicy(model: Record<string, unknown>, game: Game): void {
     for (const tax of ['incomeTax', 'businessTax'] as const) {
       validateAction({ type: 'tax', tax, rate: policy[tax] }, game.model);
     }
+
+    validateAction({ type: 'minimumWage', amount: policy.minimumWage }, game.model);
 
     for (const service of SERVICES) {
       validateAction({ type: 'spending', service, amount: spending[service] }, game.model);
@@ -385,6 +416,7 @@ export function deserialize(text: string): Game {
   }
 
   const data = parseSave(text);
+  migrateSave(data);
   const model = data.model as Record<string, unknown>;
   const original = validateWorldIdentity(model);
 

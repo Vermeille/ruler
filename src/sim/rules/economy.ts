@@ -9,6 +9,7 @@ import {
   type Rule,
 } from '../types';
 import { changeToward, delta, isLand, read } from './helpers';
+import { unitOutput, viableJobs } from './wages';
 
 export const productionRule: Rule = {
   id: 'economy.production',
@@ -25,17 +26,15 @@ export const productionRule: Rule = {
         * (3 + 2 * cell.fertility)
         * labor
         * weather
-        * (1 - cell.pollution * 0.18);
+        * (1 - cell.pollution * 0.18)
+        * (1 - cell.waterStress * 0.6);
       const materials = cell.population
         * cell.manufacturing
         * (1.4 + cell.minerals)
         * labor
         * (model.policy.laws.cleanAir ? 0.9 : 1);
-      const output = cell.population * labor * (
-        cell.agriculture * 6 * cell.price
-        + cell.manufacturing * 10 * (model.policy.laws.cleanAir ? 0.93 : 1)
-        + cell.services * 9 * cell.businessHealth
-        + cell.sports * (4 + cell.sportsInterest * 7)
+      const output = cell.population * labor * SECTORS.reduce(
+        (sum, sector) => sum + cell[sector] * unitOutput(cell, model, sector), 0,
       );
 
       return [
@@ -174,7 +173,7 @@ export const consumptionRule: Rule = {
 export const marketRule: Rule = {
   id: 'economy.businesses',
   phase: 'market',
-  description: 'Scarcity changes local prices; expensive ingredients and unmet food needs squeeze restaurants and shops.',
+  description: 'Scarcity changes prices; food, insecurity, and unaffordable payrolls squeeze local businesses.',
   run({ model }) {
     return model.cells.filter(isLand).flatMap(cell => {
       const supplyRatio = (cell.foodUsed + cell.food / 0.84) / cell.population;
@@ -198,29 +197,35 @@ export const marketRule: Rule = {
           }
         : undefined;
 
+      const serviceJobs = viableJobs(cell, model, 'services');
       const businessTarget = clamp(
         0.97
           - (1 - cell.foodSecurity) * 0.9
           - Math.max(0, cell.price - 1.4) * 0.17
-          - cell.crime * 0.25,
+          - cell.crime * 0.25
+          - (1 - serviceJobs) * 0.7,
         0.12,
         1,
       );
       const businessEvidence = businessTarget < cell.businessHealth - 0.12
         ? {
             title: `${cell.name}: restaurants and shops struggle`,
-            detail: 'Food shortages, expensive ingredients, and insecurity squeeze local businesses. A weaker business sector cuts output and employment in subsequent months.',
+            detail: serviceJobs < 1
+              ? 'Food shortages, expensive ingredients, insecurity, and payroll costs squeeze local businesses. A weaker business sector cuts output and employment in subsequent months.'
+              : 'Food shortages, expensive ingredients, and insecurity squeeze local businesses. A weaker business sector cuts output and employment in subsequent months.',
             cells: [cell.id],
             reads: [
               read(cell, 'foodSecurity', 'Food security'),
               read(cell, 'price', 'Ingredient price index'),
               read(cell, 'crime', 'Local crime'),
             ],
+            parents: serviceJobs < 1 ? ['policy:minimumWage'] : [],
           }
         : undefined;
 
       return [
-        changeToward(cell, 'price', targetPrice, 0.14, priceEvidence),
+        delta(cell, 'price', clamp(cell.price + (targetPrice - cell.price) * 0.14, 0.4, model.policy.laws.foodPriceControls ? 1 : 5) - cell.price, priceEvidence),
+        changeToward(cell, 'scarcityPrice', targetPrice, 0.14),
         changeToward(cell, 'businessHealth', businessTarget, 0.15, businessEvidence),
       ];
     });

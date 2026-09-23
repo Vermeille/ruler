@@ -116,6 +116,7 @@ function effectOutputKeys(effect: Effect): string[] {
   switch (effect.kind) {
     case 'delta': return [`delta.${effect.field}`];
     case 'transfer': return [`transfer.${effect.resource}`];
+    case 'repayDebt': return ['repayDebt.amount'];
     case 'trade': return [
       `trade.${effect.resource}.amount`,
       `trade.${effect.resource}.price`,
@@ -151,6 +152,8 @@ function pathsWrittenByEffect(effect: Effect): { source: 'model' | 'lastEvents';
       }
       return paths.map(path => ({ source: 'model' as const, path }));
     }
+    case 'repayDebt':
+      return ['treasury', 'externalCash', 'debt'].map(path => ({ source: 'model' as const, path }));
     case 'budget':
       return [
         { source: 'model', path: 'debt' },
