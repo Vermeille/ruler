@@ -6,7 +6,7 @@ import { step } from '../src/sim/engine';
 import { defaultRules } from '../src/sim/rules';
 import type { Game } from '../src/sim/types';
 
-const rules = defaultRules.filter(rule => rule.phase !== 'events');
+const rules = defaultRules.filter(rule => rule.id !== 'stories.events');
 const withoutMigration = rules.filter(rule => rule.phase !== 'migration');
 const run = (start: Game, useMigration = true): Game => {
   let game = start;
