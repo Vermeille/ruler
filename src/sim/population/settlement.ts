@@ -104,22 +104,35 @@ export function planPopulation(snapshot: DeepReadonly<Model>, effects: readonly 
   return { demands, groups };
 }
 
-function changedGroup(source: DeepReadonly<PopulationGroup>, effect: GroupEffect): PopulationGroup {
-  const group = structuredClone(source) as PopulationGroup;
-  if (effect.kind === 'population-transition') Object.assign(group, effect.transition);
-  if (effect.kind === 'population-state') {
-    for (const [field, delta] of Object.entries(effect.change)) {
-      if (field in group.attitudes) {
-        const key = field as keyof PopulationGroup['attitudes'];
-        group.attitudes[key] = clamp(group.attitudes[key] + delta);
-        continue;
-      }
-      const key = field as keyof Pick<PopulationGroup, 'age' | 'education' | 'income' | 'wealth' | 'health' | 'wellbeing' | 'approval'>;
-      const value = group[key] + delta;
-      group[key] = ['education', 'health', 'wellbeing', 'approval'].includes(field)
-        ? clamp(value) : Math.max(0, value);
-    }
+function cloneGroup(source: DeepReadonly<PopulationGroup>): PopulationGroup {
+  return {
+    ...source,
+    attitudes: { ...source.attitudes },
+  } as PopulationGroup;
+}
+
+function applyGroupChange(target: PopulationGroup, source: DeepReadonly<PopulationGroup>, effect: GroupEffect): void {
+  if (effect.kind === 'population-transition') {
+    Object.assign(target, effect.transition);
+    return;
   }
+  if (effect.kind !== 'population-state') return;
+  for (const [field, delta] of Object.entries(effect.change)) {
+    if (field in source.attitudes) {
+      const key = field as keyof PopulationGroup['attitudes'];
+      target.attitudes[key] = clamp(source.attitudes[key] + delta);
+      continue;
+    }
+    const key = field as keyof Pick<PopulationGroup, 'age' | 'education' | 'income' | 'wealth' | 'health' | 'wellbeing' | 'approval'>;
+    const value = source[key] + delta;
+    target[key] = ['education', 'health', 'wellbeing', 'approval'].includes(field)
+      ? clamp(value) : Math.max(0, value);
+  }
+}
+
+function changedGroup(source: DeepReadonly<PopulationGroup>, effect: GroupEffect): PopulationGroup {
+  const group = cloneGroup(source);
+  applyGroupChange(group, source, effect);
   return group;
 }
 
@@ -163,7 +176,7 @@ export function settlePopulation(
         model.cells[cell].population -= consumed;
         model.cells[only.to].population += consumed;
       } else {
-        Object.assign(live, changedGroup(source, only));
+        applyGroupChange(live, source, only);
       }
       outcomes[indices[0]].resultingGroup = live.id;
       continue;
@@ -196,7 +209,11 @@ export function settlePopulation(
     if (effect.kind !== 'population-delta' || effect.cause !== 'birth' || actuals[index] <= 0) return;
     const id = model.nextPopulationGroupId++;
     model.populationGroups[effect.cell].push({
-      ...structuredClone(effect.state!), id, archetype: effect.archetype!, count: actuals[index],
+      ...effect.state!,
+      attitudes: { ...effect.state!.attitudes },
+      id,
+      archetype: effect.archetype!,
+      count: actuals[index],
     });
     outcomes[index].resultingGroup = id;
     model.cells[effect.cell].population += actuals[index];
