@@ -132,74 +132,11 @@ export const societyRule: Rule = {
   },
 };
 
-export interface MigrationAppealBreakdown {
-  happiness: number;
-  employment: number;
-  wealth: number;
-  crowding: number;
-  total: number;
-}
-
-export interface MigrationFlow {
-  from: number;
-  to: number;
-  appealFrom: number;
-  appealTo: number;
-  appealDifference: number;
-  movementRate: number;
-  freedomMultiplier: number;
-  population: number;
-  cash: number;
-}
-
-/** Components of the local migration appeal score. Kept public for dev tooling. */
-export function migrationAppealBreakdown(
-  cell: DeepReadonly<Mapxel>,
-): MigrationAppealBreakdown {
-  const happiness = cell.happiness;
-  const employment = cell.employment * 0.4;
-  const wealth = clamp(cell.cash / cell.population / 60) * 0.15;
-  const crowding = -cell.population / 15000;
-
-  return {
-    happiness,
-    employment,
-    wealth,
-    crowding,
-    total: happiness + employment + wealth + crowding,
-  };
-}
-
-export function migrationAppeal(cell: DeepReadonly<Mapxel>): number {
-  return migrationAppealBreakdown(cell).total;
-}
-
-/** Calculate one neighboring migration flow without mutating the model. */
-export function migrationFlow(
-  a: DeepReadonly<Mapxel>,
-  b: DeepReadonly<Mapxel>,
-  freeMovement: boolean,
-): MigrationFlow {
-  const appealA = migrationAppeal(a);
-  const appealB = migrationAppeal(b);
-  const difference = appealB - appealA;
-  const [from, to] = difference > 0 ? [a, b] : [b, a];
-  const movementRate = Math.min(0.003, Math.abs(difference) * 0.007);
-  const freedomMultiplier = freeMovement ? 1 : 0.08;
-  const population = from.population * movementRate * freedomMultiplier;
-  const cash = population * from.cash / from.population;
-
-  return {
-    from: from.id,
-    to: to.id,
-    appealFrom: migrationAppeal(from),
-    appealTo: migrationAppeal(to),
-    appealDifference: Math.abs(difference),
-    movementRate,
-    freedomMultiplier,
-    population,
-    cash,
-  };
+function appeal(cell: DeepReadonly<Mapxel>): number {
+  return cell.happiness
+    + cell.employment * 0.4
+    + clamp(cell.cash / cell.population / 60) * 0.15
+    - cell.population / 15000;
 }
 
 export const migrationRule: Rule = {
@@ -214,21 +151,26 @@ export const migrationRule: Rule = {
         if (neighborId <= a.id) continue;
 
         const b = model.cells[neighborId];
-        const flow = migrationFlow(a, b, model.policy.laws.freeMovement);
+        const difference = appeal(b) - appeal(a);
+        const [from, to] = difference > 0 ? [a, b] : [b, a];
+        const movementRate = Math.min(0.003, Math.abs(difference) * 0.007);
+        const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
+        const population = from.population * movementRate * freedomMultiplier;
+        const cash = population * from.cash / from.population;
 
         effects.push({
           kind: 'transfer',
-          from: flow.from,
-          to: flow.to,
+          from: from.id,
+          to: to.id,
           resource: 'population',
-          amount: flow.population,
+          amount: population,
         });
         effects.push({
           kind: 'transfer',
-          from: flow.from,
-          to: flow.to,
+          from: from.id,
+          to: to.id,
           resource: 'cash',
-          amount: flow.cash,
+          amount: cash,
         });
       }
     }
