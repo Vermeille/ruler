@@ -194,7 +194,8 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
   function tooltipText(c: Mapxel): string {
     const labels = activity.labelsByCell.get(c.id) ?? [];
     const parts = [c.name];
-    const overview = visibleLayers.size === ALL_LAYERS.length;
+    const overview = visibleLayers.size === ALL_LAYERS.length
+      && LAYERS.every(layer => visibleLayers.has(layer.id));
 
     if (overview) {
       parts.push(
