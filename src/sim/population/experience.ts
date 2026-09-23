@@ -1,5 +1,5 @@
 import { clamp } from '../math';
-import type { Archetype, PopulationGroup, Rule } from '../types';
+import type { Archetype, Effect, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
 
 type LocalConditions = {
@@ -44,7 +44,7 @@ export const populationExperienceRule: Rule = {
   phase: 'experience',
   description: 'Employment, purchasing power, health, services and local conditions change group income, wealth, wellbeing and approval.',
   run({ model }) {
-    const effects = [];
+    const effects: Effect[] = [];
     const cultureFunding = model.policy.spending.culture * model.budget.funding;
     for (const cell of model.cells) {
       if (cell.biome === 'water') continue;
@@ -93,7 +93,7 @@ export const populationExperienceRule: Rule = {
         const traditionalismTarget = clamp(archetype.values.traditionalism
           + (1 - group.wellbeing) * 0.05);
         effects.push({
-          kind: 'population-state' as const,
+          kind: 'population-state',
           cell: cell.id,
           group: group.id,
           amount: group.count,
@@ -115,11 +115,11 @@ export const populationExperienceRule: Rule = {
             detail: `Employment, income, reserves, prices, and local services combine into a lower lived wellbeing target for this group.`,
             cells: [cell.id],
             reads: [
-              { cell: cell.id, group: group.id, field: 'income' as const, label: 'Group income' },
-              { cell: cell.id, group: group.id, field: 'wealth' as const, label: 'Group wealth' },
-              { cell: cell.id, group: group.id, field: 'employed' as const, label: 'Employment status' },
-              { cell: cell.id, field: 'foodSecurity' as const, label: 'Food access' },
-              { cell: cell.id, field: 'price' as const, label: 'Food price' },
+              { cell: cell.id, group: group.id, field: 'income', label: 'Group income' },
+              { cell: cell.id, group: group.id, field: 'wealth', label: 'Group wealth' },
+              { cell: cell.id, group: group.id, field: 'employed', label: 'Employment status' },
+              { cell: cell.id, field: 'foodSecurity', label: 'Food access' },
+              { cell: cell.id, field: 'price', label: 'Food price' },
             ],
           } : undefined,
         });
