@@ -68,13 +68,14 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await graph.locator('.rule-graph-node-input').filter({ hasText: 'Cell Happiness' }).click();
   await expect(page.getByRole('heading', { name: 'society', exact: true })).toBeVisible();
   await expect(lens).toContainText('society.wellbeing');
-  await expect(page.locator('.phase-title-row')).toContainText('Followed this month producer');
+  await expect(page.locator('.phase-title-row')).toContainText('showing current month');
 
   // Same-month consumer nodes recenter directly on the downstream rule.
   await phases.getByRole('button', { name: /migration/ }).click();
   await graph.locator('.rule-graph-node-consumer').filter({ hasText: 'economy.labor' }).click();
   await expect(page.getByRole('heading', { name: 'adaptation', exact: true })).toBeVisible();
   await expect(lens).toContainText('economy.labor');
+  await expect(page.locator('.phase-title-row')).toContainText('showing current month');
 
   // Time-qualified edges keep their meaning, but navigation stays in the current month.
   await phases.getByRole('button', { name: /migration/ }).click();
@@ -83,7 +84,7 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await nextProduction.click();
   await expect(page.getByRole('heading', { name: 'production', exact: true })).toBeVisible();
   await expect(lens).toContainText('economy.production');
-  await expect(page.locator('.phase-title-row')).toContainText('showing its current-month value');
+  await expect(page.locator('.phase-title-row')).toContainText('showing current month');
   await expect(page.locator('.dev-state-badge')).toContainText('tick 0');
   await expect(page.getByRole('button', { name: /Return to month/ })).toHaveCount(0);
 
