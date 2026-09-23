@@ -23,6 +23,7 @@ bench('structuredClone(model)', () => { structuredClone(game.model); }, 20);
 bench('deepFreeze(structuredClone(model))', () => { deepFreeze(structuredClone(game.model)); }, 20);
 
 for (let month = 1; month <= 12; month += 1) {
+  (globalThis as typeof globalThis & { __SIM_PROFILE__?: boolean }).__SIM_PROFILE__ = month === 12;
   const start = performance.now();
   game = step(game, defaultRules);
   const elapsed = performance.now() - start;
