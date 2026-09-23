@@ -6,7 +6,7 @@ import { enact } from '../src/sim/policy';
 import { summarize } from '../src/sim/math';
 import { defaultRules } from '../src/sim/rules';
 import { mandateReport, traceCauses } from '../src/sim/narrative';
-import type { Action, Game } from '../src/sim/types';
+import type { Action, Game, Sector } from '../src/sim/types';
 
 const run = (g: Game, months: number, events = true): Game => {
   const rules = events ? defaultRules : defaultRules.filter(rule => rule.id !== 'stories.events');
@@ -14,6 +14,19 @@ const run = (g: Game, months: number, events = true): Game => {
   return g;
 };
 const tiny = (seed = 'alder-42', mandate = 48) => createGame(seed, 18, 14, mandate);
+
+function workerShare(game: Game, sector: Sector): number {
+  let total = 0;
+  let matching = 0;
+  for (const groups of game.model.populationGroups) {
+    for (const group of groups) {
+      if (group.lifeStage !== 'adult' || !group.employed || group.occupation === null) continue;
+      total += group.count;
+      if (group.occupation === sector) matching += group.count;
+    }
+  }
+  return total > 0 ? matching / total : 0;
+}
 
 test('baseline remains viable for complete mandates across five seeds', () => {
   for (const seed of ['alder-42', 'marlow', 'greenbelt', 'coast', 'mountains']) {
@@ -52,15 +65,34 @@ test('policing, health spending, and environmental law have measured directional
   assert.ok(noPolice.crime > baseline.crime + .05); assert.ok(health.health > baseline.health + .08); assert.ok(clean.pollution < baseline.pollution - .04);
 });
 
-test('a sports subsidy creates a traceable people → food → business chain and later recovery', () => {
+test('a sports subsidy reallocates real workers and creates traceable downstream food pressure', () => {
   let g = enact(tiny('alder-42'), { type: 'subsidy', sector: 'sports', amount: 3, scope: { kind: 'national' } });
+  const initialSports = workerShare(g, 'sports');
+  const initialAgriculture = workerShare(g, 'agriculture');
   g = run(g, 48);
-  const worst = Math.min(...g.history.map(h => h.summary.foodSecurity));
-  assert.ok(worst < .85, `Expected a food shortage, got ${worst}`);
-  assert.ok(g.history.at(-1)!.summary.foodSecurity > worst + .08);
+
+  const finalSports = workerShare(g, 'sports');
+  const finalAgriculture = workerShare(g, 'agriculture');
+  const worstFoodSecurity = Math.min(...g.history.map(h => h.summary.foodSecurity));
+
+  assert.ok(finalSports > initialSports + .1,
+    `Expected sports employment to grow materially, got ${initialSports} → ${finalSports}`);
+  assert.ok(finalAgriculture < initialAgriculture - .03,
+    `Expected some workers to leave agriculture, got ${initialAgriculture} → ${finalAgriculture}`);
+  assert.ok(worstFoodSecurity < .995,
+    `Expected labor reallocation to create some national food pressure, worst food security was ${worstFoodSecurity}`);
+  assert.ok(worstFoodSecurity > .9,
+    `A funded sector subsidy should not be required to create a national food crisis; got ${worstFoodSecurity}`);
+  assert.ok(g.model.budget.funding > .95,
+    `This scenario should test reallocation, not fiscal collapse; funding was ${g.model.budget.funding}`);
 
   assert.ok(g.causes.some(c => c.rule === 'population.retraining' && c.title.includes('sports')),
     'Expected actual population groups to switch or retrain into sports');
+  assert.ok(g.causes.some(c => c.rule === 'economy.households' && c.title.includes('food supplies fall short')),
+    'Expected at least some local food shortages after agricultural labor falls');
+  assert.ok(g.causes.some(c => c.rule === 'economy.businesses' && c.title.includes('struggle')),
+    'Expected some businesses to experience downstream food pressure');
+
   const chain = g.causes
     .filter(c => c.rule === 'economy.businesses' && c.title.includes('struggle'))
     .map(c => traceCauses(g, [c.id]))
@@ -71,7 +103,7 @@ test('a sports subsidy creates a traceable people → food → business chain an
       'economy.households',
       'economy.businesses',
     ].every(rule => causes.some(c => c.rule === rule)));
-  assert.ok(chain, 'Expected observed chain from subsidy to people changing jobs, food shortage, and struggling businesses');
+  assert.ok(chain, 'Expected observed chain from subsidy to people changing jobs, local food shortage, and struggling businesses');
   assert.ok(g.articles.some(a => a.category === 'economy'));
   assert.ok(mandateReport(g).chains.length > 0, 'Mandate should retain policy consequences');
   const seen = new Set<string>(); for (const c of g.causes) { assert.ok(c.parents.every(id => seen.has(id))); seen.add(c.id); }
