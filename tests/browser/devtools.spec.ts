@@ -14,14 +14,17 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(phases.getByRole('button', { name: /events/ })).toBeVisible();
 
   await expect(lens).toContainText('economy.production');
-  await expect(lens.locator('.jacobian-grid')).toContainText('Random · Weather');
-  await expect(lens.locator('.rule-footprint-map')).toBeVisible();
+  await expect(lens.locator('.sensitivity-card')).toContainText('Random · Weather');
+  await expect(lens.locator('.sensitivity-bar i').first()).toBeVisible();
+  await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
 
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
   await expect(lens).toContainText('society.migration');
-  await expect(lens.locator('.jacobian-grid')).toContainText('Cell Happiness');
-  await expect(lens.locator('.jacobian-grid')).toContainText('Population Flow');
+  await expect(lens.locator('.sensitivity-card')).toContainText('Cell Happiness');
+  await expect(lens.locator('.rule-output-strip')).toContainText('Population Flow');
+  await expect(lens.locator('.footprint-cell-block').first()).toBeVisible();
+  await expect(lens.locator('.footprint-flow').first()).toBeVisible();
   await expect(lens.locator('.downstream-track')).toBeVisible();
 
   await page.screenshot({ path: 'test-results/simulation-workbench.png', fullPage: true });
