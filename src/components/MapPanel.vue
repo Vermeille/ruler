@@ -11,6 +11,7 @@ const props = defineProps<{
   zoom: number;
   roads: boolean;
   running: boolean;
+  darkMode: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -57,7 +58,7 @@ function zoomBy(delta: number): void {
 onMounted(mountMap);
 onBeforeUnmount(() => destroyMap?.());
 watch(
-  () => [props.game, props.selected, props.layer, props.zoom, props.roads],
+  () => [props.game, props.selected, props.layer, props.zoom, props.roads, props.darkMode],
   () => void nextTick(mountMap),
   { flush: 'post' },
 );
