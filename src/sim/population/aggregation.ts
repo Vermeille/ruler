@@ -1,4 +1,13 @@
-import { SECTORS, type Effect, type Evidence, type MutableField, type Rule, type Sector } from '../types';
+import {
+  SECTORS,
+  type DeepReadonly,
+  type Effect,
+  type Evidence,
+  type Model,
+  type MutableField,
+  type Rule,
+  type Sector,
+} from '../types';
 import {
   approvalOf,
   childrenShareOf,
@@ -9,7 +18,7 @@ import {
 } from './selectors';
 
 function projectionParents(
-  model: Parameters<Rule['run']>[0]['model'],
+  model: DeepReadonly<Model>,
   cell: number,
   field: MutableField,
 ): string[] {
@@ -33,7 +42,7 @@ function projectionParents(
 }
 
 function projectionEvidence(
-  model: Parameters<Rule['run']>[0]['model'],
+  model: DeepReadonly<Model>,
   cell: number,
   field: MutableField,
   before: number,
