@@ -43,6 +43,7 @@ const height = ref(14);
 const mandate = ref(48);
 const game = shallowRef(createGame(seed.value, width.value, height.value, mandate.value));
 const selectedPhaseIndex = ref(0);
+const inspectedRuleId = ref('');
 const selectedRuleId = ref('all');
 const selectedEffectIndex = ref(0);
 const effectFilter = ref('');
@@ -53,9 +54,13 @@ const currentPhase = computed(() => trace.value.phases[selectedPhaseIndex.value]
 const activeRuleId = computed(() => {
   const phase = currentPhase.value;
   if (!phase) return '';
-  if (selectedRuleId.value !== 'all') return selectedRuleId.value;
-  return phase.rules[0]?.id ?? '';
+  return phase.rules.some(rule => rule.id === inspectedRuleId.value)
+    ? inspectedRuleId.value
+    : phase.rules[0]?.id ?? '';
 });
+const activeRule = computed(() => (
+  currentPhase.value?.rules.find(rule => rule.id === activeRuleId.value)
+));
 const landCells = computed(() => game.value.model.cells.filter(cell => cell.biome !== 'water'));
 
 function firstLandCellId(): number {
@@ -126,6 +131,7 @@ const visibleEffects = computed(() => filteredEffects.value.slice(0, 300));
 const selectedEffect = computed(() => visibleEffects.value[selectedEffectIndex.value]);
 
 watch(currentPhase, phase => {
+  inspectedRuleId.value = phase?.rules[0]?.id ?? '';
   selectedRuleId.value = 'all';
   selectedEffectIndex.value = 0;
   effectFilter.value = '';
@@ -150,6 +156,15 @@ function changedCellCount(phase: PhaseTrace): number {
 
 function phaseEffectCount(phase: PhaseTrace): number {
   return phase.rules.reduce((sum, rule) => sum + rule.effects.length, 0);
+}
+
+function inspectRule(ruleId: string): void {
+  inspectedRuleId.value = ruleId;
+}
+
+function inspectAndFilterRule(ruleId: string): void {
+  inspectedRuleId.value = ruleId;
+  selectedRuleId.value = ruleId;
 }
 
 const cellChanges = computed(() => {
@@ -270,7 +285,7 @@ function json(value: unknown): string {
           <span class="phase-index">{{ String(index + 1).padStart(2, '0') }}</span>
           <span class="phase-copy">
             <strong>{{ phase.phase }}</strong>
-            <small>{{ phaseEffectCount(phase) }} effects · {{ changedCellCount(phase) }} cells changed</small>
+            <small>{{ phase.rules.length }} {{ phase.rules.length === 1 ? 'rule' : 'rules' }} · {{ phaseEffectCount(phase) }} effects · {{ changedCellCount(phase) }} cells</small>
           </span>
         </button>
       </aside>
@@ -287,6 +302,34 @@ function json(value: unknown): string {
             <button class="dev-icon-button" :disabled="selectedPhaseIndex === trace.phases.length - 1" @click="nextPhase">→</button>
           </div>
         </div>
+
+        <section class="dev-section" aria-label="Rules in this phase">
+          <div class="dev-section-heading">
+            <div>
+              <span class="dev-kicker">RULES IN THIS PHASE</span>
+              <h3>{{ currentPhase.rules.length }} {{ currentPhase.rules.length === 1 ? 'rule' : 'rules' }}</h3>
+            </div>
+            <p class="dev-note">Choose which rule becomes the central node in the causal graph.</p>
+          </div>
+
+          <div class="rule-tabs" role="tablist" aria-label="Rule to inspect">
+            <button
+              v-for="rule in currentPhase.rules"
+              :key="rule.id"
+              :class="{ active: activeRuleId === rule.id }"
+              @click="inspectRule(rule.id)"
+            >
+              {{ rule.id }} <span>{{ rule.effects.length }} effects</span>
+            </button>
+          </div>
+
+          <div v-if="activeRule" class="rule-descriptions">
+            <article>
+              <code>{{ activeRule.id }}</code>
+              <p>{{ activeRule.description }}</p>
+            </article>
+          </div>
+        </section>
 
         <RuleLens
           v-if="activeRuleId"
@@ -323,7 +366,7 @@ function json(value: unknown): string {
               v-for="rule in currentPhase.rules"
               :key="rule.id"
               :class="{ active: selectedRuleId === rule.id }"
-              @click="selectedRuleId = rule.id"
+              @click="inspectAndFilterRule(rule.id)"
             >
               {{ rule.id }} <span>{{ rule.effects.length }}</span>
             </button>
