@@ -28,7 +28,7 @@ test('population aggregation makes groups authoritative over social and labor ma
 
   for (const group of groups) {
     group.wellbeing = 0.23;
-    group.apval = 0.31;
+    group.approval = 0.31;
     if (group.lifeStage === 'adult') group.employed = group.occupation === 'services';
   }
 
