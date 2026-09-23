@@ -96,6 +96,10 @@
   stroke-width: 2;
 }
 
+.rule-graph-node-input.inert {
+  opacity: 0.72;
+}
+
 .rule-graph-node-rule rect {
   fill: #13273a;
   stroke: #7ad8e6;
