@@ -1,13 +1,13 @@
 # Commonwealth
 
-A playable TypeScript political simulator. Govern a procedurally generated country for a 48-month mandate, then read how different communities remember it. No AI service, API key, backend, or account is needed.
+A playable Vue 3 + TypeScript political simulator. Govern a procedurally generated country for a 48-month mandate, then read how different communities remember it. No AI service, API key, backend, or account is needed.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally http://localhost:5173). `npm run build` produces a static site in `dist/`; `npm run preview` serves that build. Node 18.19+ is supported. Dependencies are locked in `package-lock.json`.
+Open the local URL printed by Vite (normally http://localhost:5173). `npm run build` type-checks the Vue single-file components and produces a static site in `dist/`; `npm run preview` serves that build. Node 18.19+ is supported.
 
 ## Playing
 
@@ -20,9 +20,11 @@ Open the local URL printed by Vite (normally http://localhost:5173). `npm run bu
 
 Try a sports subsidy of ₡3 per worker in a region. Workers respond to relative returns, reducing local farming. Food stocks and imports initially cushion the change. Scarcity can later raise prices and hurt restaurants and shops; high prices eventually attract farmers back. This is a model interaction, not a scripted chain.
 
-## The core
+## Architecture
 
-The framework-independent simulation lives in `src/sim/`:
+The browser application is a Vue 3 app built from single-file components under `src/components/`. `src/App.vue` coordinates the major views and dialogs, while `src/composables/useGame.ts` owns browser-facing simulation state such as playback, selection, autosave, map settings, and theme. The canvas map remains an imperative renderer wrapped by `MapPanel.vue`; Vue owns its lifecycle and inputs rather than rewriting canvas drawing as DOM components.
+
+The simulation itself deliberately does **not** depend on Vue. The framework-independent core lives in `src/sim/`:
 
 | Module | Responsibility |
 | --- | --- |
@@ -40,7 +42,7 @@ See [the simulation design](docs/SIMULATION.md) for units, economic assumptions,
 
 ```sh
 npm test                 # conservation, determinism, policy, saves, full mandates, stress and long-run tests
-npm run build            # strict TypeScript check and production bundle
+npm run build            # Vue/TypeScript type check and production bundle
 npm run calibrate        # 15 full-size runs: five policy scenarios × three seeds
 npx playwright install chromium
 npm run test:e2e         # browser playthrough, policy, selection, save/reload, mandate, mobile, invalid imports
