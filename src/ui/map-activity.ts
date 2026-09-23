@@ -1,5 +1,6 @@
 import { clamp } from '../sim/math';
 import { SECTORS, type Cause, type Game, type Mapxel, type Sector } from '../sim/types';
+import { ALL_LAYERS, type Layer } from './map-layers';
 
 export type ActivityTone = 'good' | 'bad' | 'neutral';
 
@@ -7,6 +8,7 @@ export interface ActivityMarker {
   cell: number;
   glyph: string;
   label: string;
+  layer: Extract<Layer, 'foodSecurity' | 'crime' | 'pollution' | 'industry'>;
   score: number;
   phase: number;
   tone: ActivityTone;
@@ -55,14 +57,19 @@ function dominantSector(cell: Mapxel): Sector {
   return SECTORS.reduce((best, sector) => cell[sector] > cell[best] ? sector : best);
 }
 
-function markerFor(cell: Mapxel, tick: number): ActivityMarker | undefined {
+function markerFor(
+  cell: Mapxel,
+  tick: number,
+  visibleLayers: ReadonlySet<Layer>,
+): ActivityMarker | undefined {
   const candidates: ActivityMarker[] = [];
 
-  if (cell.foodSecurity < 0.82) {
+  if (visibleLayers.has('foodSecurity') && cell.foodSecurity < 0.82) {
     candidates.push({
       cell: cell.id,
       glyph: '🍞',
       label: 'Food pressure',
+      layer: 'foodSecurity',
       score: 1.1 + (0.82 - cell.foodSecurity) * 4,
       phase: phaseFor(cell.id, tick),
       tone: 'bad',
@@ -70,11 +77,12 @@ function markerFor(cell: Mapxel, tick: number): ActivityMarker | undefined {
     });
   }
 
-  if (cell.crime > 0.32) {
+  if (visibleLayers.has('crime') && cell.crime > 0.32) {
     candidates.push({
       cell: cell.id,
       glyph: '!',
       label: 'Crime pressure',
+      layer: 'crime',
       score: 0.95 + (cell.crime - 0.32) * 3,
       phase: phaseFor(cell.id, tick + 1),
       tone: 'bad',
@@ -82,11 +90,12 @@ function markerFor(cell: Mapxel, tick: number): ActivityMarker | undefined {
     });
   }
 
-  if (cell.pollution > 0.42) {
+  if (visibleLayers.has('pollution') && cell.pollution > 0.42) {
     candidates.push({
       cell: cell.id,
       glyph: '≋',
       label: 'Pollution plume',
+      layer: 'pollution',
       score: 0.8 + (cell.pollution - 0.42) * 2.6,
       phase: phaseFor(cell.id, tick + 2),
       tone: 'bad',
@@ -94,19 +103,22 @@ function markerFor(cell: Mapxel, tick: number): ActivityMarker | undefined {
     });
   }
 
-  const sector = dominantSector(cell);
-  const production = clamp(cell.output / Math.max(1, cell.population * 8), 0, 1.3);
-  const industryScore = cell[sector] * production + (cell.biome === 'city' ? 0.12 : 0);
-  if (industryScore > 0.23) {
-    candidates.push({
-      cell: cell.id,
-      glyph: INDUSTRY[sector].glyph,
-      label: INDUSTRY[sector].label,
-      score: industryScore,
-      phase: phaseFor(cell.id, tick + 3),
-      tone: 'neutral',
-      kind: 'industry',
-    });
+  if (visibleLayers.has('industry')) {
+    const sector = dominantSector(cell);
+    const production = clamp(cell.output / Math.max(1, cell.population * 8), 0, 1.3);
+    const industryScore = cell[sector] * production + (cell.biome === 'city' ? 0.12 : 0);
+    if (industryScore > 0.23) {
+      candidates.push({
+        cell: cell.id,
+        glyph: INDUSTRY[sector].glyph,
+        label: INDUSTRY[sector].label,
+        layer: 'industry',
+        score: industryScore,
+        phase: phaseFor(cell.id, tick + 3),
+        tone: 'neutral',
+        kind: 'industry',
+      });
+    }
   }
 
   return candidates.sort((a, b) => b.score - a.score)[0];
@@ -212,15 +224,18 @@ function pushLabel(labels: Map<number, string[]>, cell: number, label: string): 
   labels.set(cell, current.slice(0, 3));
 }
 
-export function deriveMapActivity(game: Game): MapActivity {
+export function deriveMapActivity(
+  game: Game,
+  visibleLayers: ReadonlySet<Layer> = new Set(ALL_LAYERS),
+): MapActivity {
   const model = game.model;
   const rawMarkers = model.cells
     .filter(cell => cell.biome !== 'water')
-    .map(cell => markerFor(cell, model.tick))
+    .map(cell => markerFor(cell, model.tick, visibleLayers))
     .filter((marker): marker is ActivityMarker => marker !== undefined);
   const markers = thinMarkers(model.cells, rawMarkers, 18);
-  const events = eventMarkers(game);
-  const flows = foodFlows(game);
+  const events = visibleLayers.has('events') ? eventMarkers(game) : [];
+  const flows = visibleLayers.has('trade') ? foodFlows(game) : [];
   const labelsByCell = new Map<number, string[]>();
 
   for (const marker of markers) pushLabel(labelsByCell, marker.cell, marker.label);
