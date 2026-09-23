@@ -1,4 +1,6 @@
 import { clamp, randomAt, summarize } from './math';
+import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
+import { generatePopulation } from './population/generate';
 import type { Game, Mapxel, Model, Policy } from './types';
 
 export const DEFAULT_POLICY: Policy = {
@@ -226,9 +228,13 @@ function createModel(
   neighbors: number[][],
 ): Model {
   const population = cells.reduce((sum, cell) => sum + cell.population, 0);
+  const generated = generatePopulation(seed, cells);
 
   return {
     seed,
+    archetypeModelVersion: ARCHETYPE_MODEL_VERSION,
+    populationGroups: generated.groups,
+    nextPopulationGroupId: generated.nextId,
     width,
     height,
     tick: 0,
@@ -266,7 +272,7 @@ export function createGame(
   const initial = summarize(model);
 
   return {
-    version: 3,
+    version: 4,
     model,
     initial,
     history: [{ tick: 0, summary: initial }],

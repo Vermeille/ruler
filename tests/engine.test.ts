@@ -176,7 +176,7 @@ test('version-one saves migrate with initially unstressed land', () => {
   delete prior.model.policy.laws.foodPriceControls;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.model.policy.minimumWage, 0);
   assert.ok(restored.model.cells.every(c => c.waterStress === 0));
   assert.ok(restored.model.cells.every(c => c.starvationDeaths === 0));
@@ -189,7 +189,7 @@ test('version-two saves migrate with an unregulated wage floor', () => {
   prior.version = 2;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.model.policy.minimumWage, 0);
 });
 test('enacting food price controls caps posted local prices and survives a save', () => {

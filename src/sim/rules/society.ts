@@ -2,6 +2,67 @@ import { clamp } from '../math';
 import { SECTORS, type DeepReadonly, type Effect, type Mapxel, type Rule } from '../types';
 import { changeToward, delta, isLand, read } from './helpers';
 import { viableJobs } from './wages';
+import { archetypeAt } from '../population/archetypes';
+import type { Model } from '../types';
+
+function employmentTarget(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model>): number {
+  const affordableJobs = SECTORS.reduce(
+    (sum, sector) => sum + cell[sector] * viableJobs(cell, model, sector), 0,
+  );
+  const ordinaryJobs = clamp(
+    0.96
+      - (1 - cell.businessHealth) * cell.services * 0.6
+      - model.policy.businessTax * 0.12
+      - (1 - cell.foodSecurity) * 0.05,
+    0.45,
+    0.98,
+  );
+  return clamp(ordinaryJobs * affordableJobs, 0.05, 0.98);
+}
+
+function employmentTransitions(
+  cell: DeepReadonly<Mapxel>,
+  model: DeepReadonly<Model>,
+  nextEmployment: number,
+): Effect[] {
+  const adults = model.populationGroups[cell.id].filter(group => group.lifeStage === 'adult');
+  const adultCount = adults.reduce((sum, group) => sum + group.count, 0);
+  if (!adultCount) return [];
+  const employed = adults.reduce((sum, group) => sum + (group.employed ? group.count : 0), 0);
+  const change = nextEmployment * adultCount - employed;
+  if (Math.abs(change) < 0.25) return [];
+  const losingJobs = change < 0;
+  let remaining = Math.abs(change);
+  const candidates = adults.filter(group => group.employed === losingJobs).map(group => {
+    const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
+    const sectorViability = group.occupation ? viableJobs(cell, model, group.occupation) : 0;
+    const score = losingJobs
+      ? (1 - sectorViability) * 0.6 + (1 - group.education) * 0.2 + (1 - archetype.traits.adaptability) * 0.2
+      : archetype.traits.adaptability * 0.5 + group.education * 0.3 + sectorViability * 0.2;
+    return { group, score };
+  }).sort((a, b) => b.score - a.score || a.group.id - b.group.id);
+  const effects: Effect[] = [];
+  for (const { group } of candidates) {
+    if (remaining <= 1e-9) break;
+    const amount = Math.min(group.count, remaining);
+    effects.push({ kind: 'population-transition', cell: cell.id, group: group.id,
+      amount, transition: { employed: !losingJobs },
+      evidence: amount >= 1 && model.tick % 3 === 0 ? {
+        title: `${cell.name}: ${losingJobs ? 'workers lose jobs' : 'residents find work'}`,
+        detail: `${amount.toFixed(1)} residents of archetype #${group.archetype} ${losingJobs ? 'lose employment' : 'enter employment'} as local hiring changes.`,
+        cells: [cell.id],
+        reads: [
+          { cell: cell.id, group: group.id, field: 'employed', label: 'Starting employment status' },
+          { cell: cell.id, field: 'employment', label: 'Local employment' },
+          { cell: cell.id, field: 'businessHealth', label: 'Business viability' },
+        ],
+        parents: ['policy:minimumWage'],
+      } : undefined,
+    });
+    remaining -= amount;
+  }
+  return effects;
+}
 
 function averageNeighborWealth(
   neighbors: readonly DeepReadonly<Mapxel>[],
@@ -84,17 +145,9 @@ export const societyRule: Rule = {
       const affordableJobs = SECTORS.reduce(
         (sum, sector) => sum + cell[sector] * viableJobs(cell, model, sector), 0,
       );
-      const ordinaryJobs = clamp(
-        0.96
-          - (1 - cell.businessHealth) * cell.services * 0.6
-          - model.policy.businessTax * 0.12
-          - (1 - cell.foodSecurity) * 0.05,
-        0.45,
-        0.98,
-      );
-      const employmentTarget = clamp(ordinaryJobs * affordableJobs, 0.05, 0.98);
+      const jobsTarget = employmentTarget(cell, model);
       const employmentEvidence = affordableJobs < 0.6
-        && cell.employment > employmentTarget + 0.1 && model.tick % 3 === 0
+        && cell.employment > jobsTarget + 0.1 && model.tick % 3 === 0
         ? {
             title: `${cell.name}: firms cut hiring`,
             detail: `At a ₡${model.policy.minimumWage.toFixed(2)} wage floor, only ${(affordableJobs * 100).toFixed(0)}% of local jobs can cover payroll from production receipts after business tax and imported inputs. Employment adjusts gradually.`,
@@ -124,13 +177,8 @@ export const societyRule: Rule = {
       const sportsInterestTarget = clamp(
         0.17 + cell.sports * 0.85 + spending.culture * funding * 0.6,
       );
-      const birthRate = 0.00065 + cell.happiness * 0.00055 + cell.health * 0.0002;
-      const deathRate = 0.00095
-        + (1 - cell.health) * 0.0005
-        + (1 - cell.foodSecurity) * 0.0008;
       const deprivation = clamp((0.7 - cell.foodSecurity) / 0.7);
       const starvationDeaths = cell.population * deprivation * deprivation * 0.008;
-      const populationChange = cell.population * (birthRate - deathRate) - starvationDeaths;
       const childrenTarget = clamp(0.15 + cell.happiness * 0.09, 0.12, 0.28);
       const seniorsTarget = clamp(0.12 + cell.health * 0.07, 0.12, 0.22);
 
@@ -140,11 +188,11 @@ export const societyRule: Rule = {
         changeToward(cell, 'education', educationTarget, 0.025),
         changeToward(cell, 'infrastructure', infrastructureTarget, 0.06),
         changeToward(cell, 'pollution', pollutionTarget, 0.08),
-        changeToward(cell, 'employment', employmentTarget, 0.1, employmentEvidence),
+        changeToward(cell, 'employment', jobsTarget, 0.1, employmentEvidence),
+        ...employmentTransitions(cell, model, cell.employment + (jobsTarget - cell.employment) * 0.1),
         changeToward(cell, 'happiness', happinessTarget, 0.09),
         changeToward(cell, 'approval', approvalTarget, 0.12),
         changeToward(cell, 'sportsInterest', sportsInterestTarget, 0.06),
-        delta(cell, 'population', populationChange),
         delta(cell, 'starvationDeaths', starvationDeaths - cell.starvationDeaths),
         changeToward(cell, 'children', childrenTarget, 0.008),
         changeToward(cell, 'seniors', seniorsTarget, 0.005),
@@ -168,8 +216,9 @@ function appeal(cell: DeepReadonly<Mapxel>): number {
 export const migrationRule: Rule = {
   id: 'society.migration',
   phase: 'migration',
-  description: 'Residents compare nearby work, food-adjusted earnings, reserves, and food access before moving with their savings.',
-  run({ model }) {
+  description: 'Each quarter, residents compare nearby work, food-adjusted earnings, reserves, and food access before moving with their savings.',
+  run({ model, random }) {
+    if (model.tick % 3 !== 0) return [];
     const effects: Effect[] = [];
 
     for (const a of model.cells.filter(isLand)) {
@@ -179,24 +228,73 @@ export const migrationRule: Rule = {
         const b = model.cells[neighborId];
         const difference = appeal(b) - appeal(a);
         const [from, to] = difference > 0 ? [a, b] : [b, a];
-        const movementRate = Math.min(0.003, Math.abs(difference) * 0.007);
+        const movementRate = Math.min(0.009, Math.abs(difference) * 0.021);
         const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
         const population = from.population * movementRate * freedomMultiplier;
-        const cash = population * Math.max(0, from.cash) / from.population;
 
-        effects.push({
-          kind: 'transfer',
-          from: from.id,
-          to: to.id,
-          resource: 'population',
-          amount: population,
-        });
+        if (population <= 0) continue;
+        const candidates = model.populationGroups[from.id]
+          .filter(group => group.lifeStage === 'adult' && group.count >= population)
+          .map(group => {
+            const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
+            const means = clamp(group.wealth / 10, 0.2, 1);
+            const hardship = 1 + (1 - group.wellbeing) * 0.5 + (group.employed ? 0 : 0.35);
+            const opportunity = 1 + Math.max(0, to.employment - from.employment) * 0.5;
+            const weight = group.count * (0.2 + archetype.traits.mobility)
+              * (1 - archetype.traits.communityAttachment * 0.75)
+              * means * hardship * opportunity;
+            return { group, weight };
+          });
+        const weightTotal = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+        const movers: { group: typeof model.populationGroups[number][number]; amount: number }[] = [];
+        if (weightTotal > 0) {
+          let draw = random(from.id, `migration-${to.id}`) * weightTotal;
+          const selected = candidates.find(candidate => {
+            draw -= candidate.weight;
+            return draw < 0;
+          })?.group ?? candidates[candidates.length - 1].group;
+          movers.push({ group: selected, amount: population });
+        } else {
+          let remaining = population;
+          const adults = model.populationGroups[from.id]
+            .filter(group => group.lifeStage === 'adult')
+            .sort((a, b) => b.count - a.count || a.id - b.id);
+          for (const group of adults) {
+            if (remaining <= 1e-12) break;
+            const amount = Math.min(remaining, group.count);
+            if (amount > 0) movers.push({ group, amount });
+            remaining -= amount;
+          }
+        }
+        const movingPopulation = movers.reduce((sum, mover) => sum + mover.amount, 0);
+        if (movingPopulation <= 0) continue;
+        for (const { group, amount } of movers) {
+          effects.push({
+            kind: 'population-transfer',
+            group: group.id,
+            from: from.id,
+            to: to.id,
+            amount,
+            evidence: amount >= 1 && model.tick % 3 === 0 ? {
+              title: `${from.name}: residents move toward ${to.name}`,
+              detail: `${amount.toFixed(1)} members of archetype #${group.archetype} move after comparing local conditions. Their mobility, community attachment, work, wellbeing, and reserves affect the chance of moving.`,
+              cells: [from.id, to.id],
+              reads: [
+                { cell: from.id, group: group.id, field: 'wealth', label: 'Group reserves' },
+                { cell: from.id, group: group.id, field: 'wellbeing', label: 'Group wellbeing' },
+                { cell: from.id, field: 'employment', label: 'Origin employment' },
+                { cell: to.id, field: 'employment', label: 'Destination employment' },
+              ],
+              parents: ['policy:law:freeMovement'],
+            } : undefined,
+          });
+        }
         effects.push({
           kind: 'transfer',
           from: from.id,
           to: to.id,
           resource: 'cash',
-          amount: cash,
+          amount: movingPopulation * Math.max(0, from.cash) / from.population,
         });
       }
     }

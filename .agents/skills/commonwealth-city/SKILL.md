@@ -10,6 +10,7 @@ Use this skill for work in this repository's fictional city and economy simulati
 ## Project map
 
 - `src/sim/rules.ts`: default rule registry; implementations are split across `rules/economy.ts`, `rules/state.ts`, `rules/society.ts`, and `rules/events.ts`.
+- `src/sim/population/`: deterministic archetypes, sparse mutable groups, group settlement/merge, selectors, experience, aging, explicit births/deaths, and retraining. Cell social fields remain authoritative while this population layer is calibrated.
 - `src/sim/policy.ts`: action validation, policy mutation, subsidy precedence, budget forecasting, and investment effects.
 - `src/sim/engine.ts`: phase ordering, effect settlement, model invariants, and tick execution.
 - `src/sim/math.ts`: deterministic keyed randomness and national summary calculations.

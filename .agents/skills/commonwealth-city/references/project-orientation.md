@@ -20,6 +20,8 @@ The HUD and charts use population-weighted national means for local indices. UI 
 
 The world is a grid of mapxels, approximately 4 km² each. Each land mapxel represents an aggregate community, not named people or individual firms. It has residents and private cash; food and materials stocks; employment and industry shares; physical suitability; living-condition indices; and local prices/business health. Mapxels trade with orthogonal neighbors. There are no roads as a separate network: infrastructure changes the modeled rate of local equalization.
 
+The simulation now also has 2,048 deterministic global human archetypes and sparse mutable population groups in each land mapxel. Archetypes hold persistent traits, needs, values, and sector affinities. Groups hold the circumstances that change: age, employment, occupation, income, wealth, health, education, wellbeing, approval, and attitudes. Employment shocks can split a group; similar groups can merge; migration moves groups and their archetype composition. Births create child cohorts, deaths remove members of actual groups, and children mature into adults who later retire. This layer is still being migrated into authority: cell social fields drive gameplay and national summaries, while the developer workbench compares them with group-derived values.
+
 The four sectors compete for workers:
 
 - **Agriculture** produces staple food. Land fertility and food prices affect its productivity/return.
@@ -43,7 +45,7 @@ This is why a policy can have multiple consequences. A subsidy both costs public
 
 ### Explicit, sequential monthly phases
 
-The engine increments the month, then runs production, trade, consumption, market adjustment, taxation, financing, fiscal payments, society/demographics, migration, industry adaptation, and stochastic events. Every rule in one phase reads the same immutable snapshot. Rules propose effects; the engine settles the entire phase before taking the next snapshot. A rule cannot see another rule's same-phase proposal, even if an `after` dependency orders them.
+The engine increments the month, then runs production, trade, consumption, market adjustment, taxation, financing, fiscal payments, society, population experience, aging, demographics, migration, industry adaptation and retraining, and stochastic events. Every rule in one phase reads the same immutable snapshot. Rules propose effects; the engine settles the entire phase before taking the next snapshot. A rule cannot see another rule's same-phase proposal, even if an `after` dependency orders them.
 
 ### Effects instead of direct mutation
 
@@ -83,7 +85,8 @@ The core simulation in `src/sim/` is browser-framework-independent:
 
 | Module | What it owns | Where to start |
 | --- | --- | --- |
-| `types.ts` | `Game`, `Model`, `Mapxel`, actions, effects, rule contract, metrics | Understand the data vocabulary before changing shape or behavior. |
+| `types.ts` | `Game`, `Model`, `Mapxel`, archetypes, population groups, actions, effects, rule contract, metrics | Understand the data vocabulary before changing shape or behavior. |
+| `population/` | Deterministic archetypes, sparse group generation, settlement, merging, selectors, experience, demographics, and retraining | Keep archetype baselines separate from mutable group circumstances. |
 | `world.ts` | Seeded geography, initial cell values, default policy and accounts | Understand what a new country starts with. |
 | `rules.ts`, `rules/` | Rule registry and domain implementations for economy, state, society, and events | Find a simulation behavior in its domain module. |
 | `policy.ts` | Scope resolution, action validation, preview, policy enactment and budget forecast | Change government controls or policy effects. |
@@ -127,4 +130,4 @@ Calibration output is evidence for its specific seeds, scenarios, and protocol, 
 
 ## Scope boundaries
 
-The simulation deliberately aggregates residents and firms. Food is a staple basket; manufacturing materials are generic; restaurant/retail failure is represented by business health. It currently has no individual cohorts, separately accounted firms, market auction, political parties/elections, diplomacy, multiplayer, or real AI calls. Project effects change an index immediately; the index then responds to ordinary monthly upkeep. Be clear about these boundaries when explaining features or proposing extensions.
+The simulation deliberately aggregates residents and firms. Population groups are cohorts, not individual people or households, and their social indices are still in shadow mode. Food is a staple basket; manufacturing materials are generic; restaurant/retail failure is represented by business health. It currently has no separately accounted firms, market auction, political parties/elections, diplomacy, multiplayer, or real AI calls. Project effects change an index immediately; the index then responds to ordinary monthly upkeep. Be clear about these boundaries when explaining features or proposing extensions.

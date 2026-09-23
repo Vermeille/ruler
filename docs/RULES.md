@@ -25,7 +25,13 @@ National summary metrics are calculated over land mapxels. Let `P = Σᵢ pᵢ` 
 | Starvation deaths | `Σᵢ starvationDeathsᵢ` during the most recent month |
 | Treasury, debt | Public account balances in crowns |
 
-The UI's “household wellbeing” is the happiness metric. Food needs met is food security. The model does not define a separate composite wellbeing score. Other cell fields, such as infrastructure, sports interest, and business health, are not part of the national `Summary` type.
+The UI's “household wellbeing” is the authoritative cell happiness metric. Food needs met is food security. Population groups also track a distinct shadow wellbeing value, which does not yet feed the national `Summary`. Other cell fields, such as infrastructure, sports interest, and business health, are not part of that type.
+
+### Archetypes and population groups
+
+The world seed and archetype model version deterministically define 2,048 global archetypes. Their traits, needs, values, and sector affinities lie in [0.1, 0.9]. They contain no current age, job, income, wealth, health, approval, or wellbeing. Each land mapxel initially instantiates six locally compatible archetypes, with child, employed-adult, unemployed-adult, and senior groups. Counts add to the cell population; adult employment and child/senior shares initially match the cell aggregates. Group counts may be fractional. Archetypes need not be present in every mapxel.
+
+Mutable group state includes age, life stage, education, occupation, employment status, income, wealth, health, wellbeing, approval, and four current attitudes. Group income and wealth are distributional indices, not separately conserved cash accounts. Partial population effects split groups; whole-group effects retain the ID when possible. Deterministic compaction combines groups with the same archetype and discrete state when their continuous state is within explicit tolerances. All population effects settle against phase-start counts. Group totals equal cell population, and water mapxels contain no groups. The cell social fields remain authoritative while this layer is calibrated.
 
 ## Monthly update order
 
@@ -38,10 +44,13 @@ Each phase reads one deeply frozen snapshot and returns proposed effects. The en
 5. Taxation
 6. Financing
 7. Fiscal payments
-8. Society and demographics
-9. Migration
-10. Industry adaptation
-11. Stochastic events
+8. Society
+9. Population experience
+10. Aging and life-stage transitions
+11. Births and deaths
+12. Migration
+13. Industry adaptation
+14. Stochastic events
 
 Time advances before the first phase. A default mandate lasts 48 ticks; the supported mandate range is 1–240.
 
@@ -126,7 +135,7 @@ The common funding fraction is `clamp((treasury − interestPaid)/forecastSpendi
 
 After funding the month's services, cash above an operating reserve of ₡6 per resident repays outstanding debt principal, up to the amount owed. Repayment is an explicit treasury-to-external cash transfer paired with an equal debt reduction; it is separate from interest. A government that restores a surplus therefore repairs its balance sheet instead of accumulating cash indefinitely while debt remains outstanding.
 
-### 8. Society and demographics
+### 8. Society
 
 All targets below are calculated from the society-phase snapshot, then each listed index moves toward its target by the specified fraction per month.
 
@@ -150,21 +159,39 @@ Severe food deprivation produces explicit expected starvation deaths in each map
 
 `starvationDeaths = population × 0.008 × clamp((0.7 − foodSecurity)/0.7)²`.
 
-This is zero when at least 70% of food needs are met. It is a modeled count for the current month, not a cumulative total or a historical mortality estimate. Monthly population change is a net expected rate plus this explicit loss:
-
-`Δpopulation = population × [(0.00065 + 0.00055 happiness + 0.0002 health) − (0.00095 + 0.0005(1 − health) + 0.0008(1 − foodSecurity))] − starvationDeaths`.
+This is zero when at least 70% of food needs are met. It is a modeled count for the current month, not a cumulative total or a historical mortality estimate. The following demographics phase removes that count from actual groups along with ordinary mortality.
 
 Children move 0.8% toward `clamp(0.15 + 0.09 happiness, 0.12, 0.28)`. Seniors move 0.5% toward `clamp(0.12 + 0.07 health, 0.12, 0.22)`.
 
-### 9. Migration
+The same society phase also aligns adult group employment with the newly proposed cell employment. A mismatch smaller than 0.25 expected people is deferred. For job losses, groups are ordered by a score of `0.6(1 − occupationViability) + 0.2(1 − education) + 0.2(1 − adaptability)`; for job gains, the score is `0.5 adaptability + 0.3 education + 0.2 occupationViability`. The engine transitions enough people in that order, splitting groups when only part changes status. The cell employment target remains the authority during this migration stage.
+
+### 9. Population experience
+
+Each group reads the settled cell conditions from the start of this phase. Let `B = clamp(groupWealth/35)`, `F = clamp(foodSecurity + 0.08 B − 0.12 max(0, price − 1)(1 − B))`, and `Q = clamp((groupIncome + 0.08 min(groupWealth, 30))/(6 price))`. Its target wellbeing is the weighted mean of nine outcomes, using that archetype's corresponding need weights: food `F`, income `Q`, employment (1 if employed, 0.2 if unemployed, 0.7 for children/seniors), health, safety `1 − crime`, housing `clamp(1 − population/20000)`, education access, environment `1 − pollution`, and culture `clamp(0.5 + cultureSpending × funding)`. Group wellbeing moves 10% toward this target. Thus the same food price or job shock can affect groups differently through both their circumstances and needs.
+
+For employed adults, monthly target income is `(output/population) × (0.8 + 0.3 education)`; for other groups it is zero. Income moves 18% toward that target. Let `nextIncome` include that adjustment. Group wealth changes by `max(−wealth, 0.25(nextIncome − 1.5 − 1.7 price) + 0.01(cellCash/population − wealth))`. This is distributional state, not a transfer from the conserved cell cash account. Group health moves 4% toward cell health. Education targets `clamp(cellEducation + 0.18(archetypeEducationAffinity − 0.5))`, with monthly adjustments of 2% for children, 0.5% for adults, and zero for seniors.
+
+Group approval has a separate target: `clamp(0.16 + 0.55 nextWellbeing + 0.15 wellbeingChange + 0.1 funding + assemblyAgreement − 0.2 incomeTax × archetypeMaterialism)`. `assemblyAgreement` is `+0.035 × currentCivicLiberty` with public assembly and `−0.18 × currentCivicLiberty` without it. Approval moves 8% toward the target, so it can differ from wellbeing and carries memory of past conditions.
+
+Current group attitudes drift slowly around their archetype baselines. Environmentalism moves 0.3% per month toward `clamp(baselineEnvironmentalism + 0.2(pollution − 0.2))`; civic-liberty concern moves 0.2% toward `clamp(baselineCivicLiberty + 0.08 if public assembly is restricted)`. Solidarity moves 0.2% toward `clamp(baselineSolidarity + 0.1(1 − wellbeing))`; traditionalism moves 0.1% toward `clamp(baselineTraditionalism + 0.05(1 − wellbeing))`. Archetype definitions themselves never drift.
+
+### 10–11. Group aging and demographics
+
+Each existing group ages by 1/12 year per month. A child reaching 18 becomes an unemployed adult with an occupation chosen from local industry shares and archetype affinities. An adult reaching 65 becomes a senior and leaves employment. These whole-group transitions retain the group ID.
+
+Births and deaths are explicit population source and sink effects. In each land mapxel, reproductive adults are groups aged 18–49. Their selection weight is `groupCount × (0.7 + 0.6 familyOrientation)`. Every twelfth month, the birth count is `12 × population × (0.00065 + 0.00055 happiness + 0.0002 health) × clamp(reproductiveWeight / (0.45 population), 0, 1.5)`; it is zero in the intervening months. Batching expected fractional births makes inspectable yearly child cohorts. A keyed draw selects one parent cohort. Children inherit its archetype 88% of the time; for the other 12%, one of four one-bit variants with the closest stable trait vector is chosen. The newborn group begins at age zero with no occupation, employment, education, or income. Its health, reserves, wellbeing, approval, and attitudes come from current parent and local conditions.
+
+Ordinary deaths target `population × [0.00095 + 0.0005(1 − health) + 0.0008(1 − foodSecurity)]`; the current month's starvation deaths are added. The total is capped at current population. Group allocations are weighted by count, age risk, group health, and food deprivation, capped at each source group count, with any excess redistributed. Older and less healthy groups therefore experience a larger share of mortality. The resulting changes to mapxel population come from group birth and death Effects, rather than an aggregate net population delta.
+
+### 12. Migration
 
 Each mapxel compares its adjacent communities using an economic opportunity proxy. Let `foodAdjustedReceipts = (0.65 × output/population)/price` and `foodAdjustedReserves = (cash/population)/price`. The 0.65 factor matches the cash actually received from production exports; `price` is the local staple-food price. These are proxies for potential earnings and purchasing power, not observed wages or a complete cost-of-living index. Cell appeal is
 
 `happiness + 0.4 employment + 0.28 clamp(foodAdjustedReceipts/5) + 0.12 clamp(foodAdjustedReserves/60) + 0.3 foodSecurity − population/15000`.
 
-Across each land-neighbor pair, residents move from lower to higher appeal. The requested monthly flow is the source population times `min(0.003, 0.007 × |appeal difference|)`. With Freedom of Movement repealed, multiply that flow by 0.08. Migrants carry the same fraction of source-cell cash as their fraction of source population. The phase settles outgoing population and cash proportionally to the starting balances; national population is conserved by migration. Jobs can attract people, while expensive or unavailable food can outweigh higher nominal output.
+Every third month, across each land-neighbor pair, residents move from lower to higher appeal. The requested quarterly flow is the source population times `min(0.009, 0.021 × |appeal difference|)`. With Freedom of Movement repealed, multiply that flow by 0.08. An adult group large enough to supply that flow is selected with weight proportional to its count, `(0.2 + mobility)`, `(1 − 0.75 communityAttachment)`, `clamp(groupWealth/10, 0.2, 1)`, hardship `1 + 0.5(1 − groupWellbeing) + 0.35 if unemployed`, and destination opportunity `1 + 0.5 max(0, destinationEmployment − sourceEmployment)`. A keyed deterministic draw selects the group. If no single adult group is large enough, the flow is divided among adult groups in descending count order. Migrants carry the same fraction of source-cell cash as their fraction of source population. Group transfers and cash outflows settle against phase-start balances; national population is conserved by migration. Jobs can attract people, while expensive or unavailable food can outweigh higher nominal output.
 
-### 10. Industry adaptation
+### 13. Industry adaptation and retraining
 
 For each sector `k`, compute a base weight `bₖ`, return `rₖ`, and normalized target share `qₖ`:
 
@@ -177,7 +204,9 @@ For each sector `k`, compute a base weight `bₖ`, return `rₖ`, and normalized
 
 `wₖ = bₖ × exp(clamp(rₖ + 1.1 × subsidyₖ × funding, −2, 4))`, and `qₖ = wₖ / Σⱼwⱼ`. Each sector share moves 6.5% toward `qₖ` per month. Since all shares use the same snapshot and the targets sum to 1, the shares remain normalized. Local subsidies replace, rather than add to, that sector's national subsidy.
 
-### 11. Stochastic events
+Every sixth month, each unemployed adult group of at least one expected person compares sector opportunities `sectorShare × viableJobs × (0.4 + archetypeSectorAffinity)`. If the best sector differs from its occupation and scores at least 0.02, the group requests an occupation transition for `count × 0.25 × (0.2 + adaptability) × (0.3 + 0.7 cellEducation)` people, provided the request reaches 0.1 person. Only that subgroup changes occupation; its archetype and employment status stay the same. Retraining changes which sector viability can subsequently help it find work, but does not create jobs directly.
+
+### 14. Stochastic events
 
 Random values are deterministic for a given seed, tick, rule ID, mapxel ID, and channel. Each event family samples one candidate land mapxel per month, so adding mapxels does not create an independent national event roll for every cell. Cooldowns are measured from the last event of that family.
 
@@ -221,4 +250,4 @@ Investment costs are taken immediately from treasury and moved to the external a
 
 The simulation documentation reports these observed 48-month baseline ranges on three full-size seeded maps: approval 73.1–73.7%, wellbeing/happiness 80.2–80.9%, food needs met 98.9–99.9% at month 48, zero debt, and full service funding. The documented regression coverage also includes five 48-month seeds, a 240-month run without discrete events, a small initial-condition perturbation, account-conservation checks, policy-direction checks, a subsidy/food/business feedback chain, and unaffordable fiscal settings. `npm run calibrate` runs five scenarios on three 36×26 worlds. Under a national sports subsidy of ₡3 per sector worker per month, national food-security lows are 64.3–65.4% before recovery as farming returns rise and fiscal constraints limit funding.
 
-These are observations and regression checks for selected seeds and scenarios, not mathematical guarantees of stability or universal outcomes. The economy is intentionally simplified: households and firms are aggregates, agriculture is a staple-food basket, manufacturing makes generic materials, and business failures are represented through business health. There is no market auction, individual demographic cohorts, electoral-party system, foreign diplomacy, or interregional transport graph. Projects raise an index immediately; that index then follows ordinary public-service upkeep. Custom policy extremes can cause hardship and default, with finite, inspectable state.
+These are observations and regression checks for selected seeds and scenarios, not mathematical guarantees of stability or universal outcomes. The economy is intentionally simplified: households and firms are aggregates, agriculture is a staple-food basket, manufacturing makes generic materials, and business failures are represented through business health. Population groups have age state, but births, deaths, and stage changes still use the legacy aggregate demographic rule. There is no market auction, electoral-party system, foreign diplomacy, or interregional transport graph. Projects raise an index immediately; that index then follows ordinary public-service upkeep. Custom policy extremes can cause hardship and default, with finite, inspectable state.

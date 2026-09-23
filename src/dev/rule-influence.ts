@@ -20,7 +20,8 @@ export interface RuleConsumer {
   key: string;
   ruleId: string;
   phase: string;
-  month: 'this month' | 'next month';
+  month: 'this month' | 'next month' | 'later month';
+  monthsAhead: number;
   self: boolean;
   strength: number;
   paths: InfluencePath[];
@@ -126,6 +127,10 @@ function effectOutputKeys(effect: Effect): string[] {
       ...Object.keys(effect.value).map(field => `budget.${field}`),
     ];
     case 'event': return [`event.${effect.key}`];
+    case 'population-transfer': return ['population.transfer'];
+    case 'population-transition': return ['population.transition'];
+    case 'population-state': return ['population.state'];
+    case 'population-delta': return [`population.${effect.cause}`];
   }
 }
 
@@ -164,6 +169,15 @@ function pathsWrittenByEffect(effect: Effect): { source: 'model' | 'lastEvents';
       ];
     case 'event':
       return [{ source: 'lastEvents', path: effect.key }];
+    case 'population-transfer':
+      return [effect.from, effect.to].flatMap(cell => [
+        { source: 'model' as const, path: `cells.${cell}.population` },
+        { source: 'model' as const, path: `populationGroups.${cell}` },
+      ]);
+    case 'population-transition':
+    case 'population-state':
+    case 'population-delta':
+      return [{ source: 'model', path: `populationGroups.${effect.cell}` }];
   }
 }
 
@@ -218,6 +232,7 @@ function collectConsumers(
   ruleId: string,
   month: RuleConsumer['month'],
   afterPhaseIndex = -1,
+  monthsAhead = 0,
 ): RuleConsumer[] {
   const consumers: RuleConsumer[] = [];
 
@@ -236,6 +251,7 @@ function collectConsumers(
         ruleId: rule.id,
         phase: rule.phase,
         month,
+        monthsAhead,
         self: rule.id === ruleId,
         strength: matched.length / Math.max(1, writes.length),
         paths: matched.slice(0, 6),
@@ -344,15 +360,19 @@ export function analyzeRuleInfluence(
     phaseIndex,
   );
 
-  if (!baseline.result.ended) {
-    const next = traceStep(baseline.result);
-    consumers.push(...collectConsumers(
-      baseline.result,
-      next.phases,
-      writes,
-      ruleId,
-      'next month',
-    ));
+  let future = baseline.result;
+  const seenFutureRules = new Set<string>();
+  const horizon = ruleId === 'society.migration' ? 3 : 1;
+  for (let ahead = 1; ahead <= horizon && !future.ended; ahead += 1) {
+    const next = traceStep(future);
+    const found = collectConsumers(future, next.phases, writes, ruleId,
+      ahead === 1 ? 'next month' : 'later month', -1, ahead);
+    for (const consumer of found) {
+      if (seenFutureRules.has(consumer.ruleId)) continue;
+      consumers.push(consumer);
+      seenFutureRules.add(consumer.ruleId);
+    }
+    future = next.result;
   }
 
   return {

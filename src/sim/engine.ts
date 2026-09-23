@@ -1,6 +1,9 @@
 import { deepFreeze, randomAt, summarize, clamp } from './math';
 import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
+import { ARCHETYPE_COUNT, ARCHETYPE_MODEL_VERSION } from './population/archetypes';
+import { mergePopulation } from './population/merge';
+import { planPopulation, reconcileLegacyPopulation, settlePopulation } from './population/settlement';
 import {
   MUTABLE_FIELDS,
   PHASES,
@@ -161,8 +164,18 @@ export function recordCause(
   }
 
   const observations = (evidence.reads ?? []).map(read => {
-    const source = provenance[`${read.cell}:${read.field}`];
+    const key = 'group' in read ? `group:${read.group}:${read.field}` : `${read.cell}:${read.field}`;
+    const source = provenance[key];
     if (source) parents.add(source);
+
+    if ('group' in read) {
+      const group = snapshot.populationGroups[read.cell]?.find(item => item.id === read.group);
+      if (!group) throw new Error(`Evidence references unknown population group ${read.group}.`);
+      const value = read.field in group.attitudes
+        ? group.attitudes[read.field as keyof typeof group.attitudes]
+        : Number(group[read.field as keyof typeof group]);
+      return { ...read, value };
+    }
 
     return {
       ...read,
@@ -471,6 +484,11 @@ export function commitEffects(
   const eventIds = new Map<string, string>();
   const deltas = new Map<string, number>();
   const { demands } = planSettlement(snapshot, proposals);
+  const populationProposals = proposals.filter((proposal): proposal is Proposal & {
+    effect: Extract<Effect, { kind: 'population-transfer' | 'population-transition' | 'population-state' | 'population-delta' }>
+  } => proposal.effect.kind.startsWith('population-'));
+  const populationEffects = populationProposals.map(proposal => proposal.effect);
+  const populationPlan = planPopulation(snapshot, populationEffects);
 
   for (const { rule, effect } of proposals) {
     let actual = 0;
@@ -496,9 +514,14 @@ export function commitEffects(
         eventIds.set(effect.key, causeId);
         break;
       }
+      case 'population-transfer':
+      case 'population-transition':
+      case 'population-state':
+      case 'population-delta':
+        break;
     }
 
-    if (effect.kind !== 'event') {
+    if (effect.kind !== 'event' && !effect.kind.startsWith('population-')) {
       recordEffectCause(game, snapshot, rule, effect, actual, provenance);
     }
 
@@ -508,9 +531,73 @@ export function commitEffects(
   }
 
   applyAccumulatedDeltas(game, deltas);
+  const populationActuals = settlePopulation(game.model, populationEffects, populationPlan);
+  populationProposals.forEach((proposal, index) => {
+    const { effect, rule } = proposal;
+    const { actual, resultingGroup } = populationActuals[index];
+    if (!effect.evidence || actual <= 1e-9) return;
+    const causeId = recordCause(game, snapshot, rule, effect.evidence, actual, provenance);
+    const cells = effect.kind === 'population-transfer' ? [effect.from, effect.to] : [effect.cell];
+    for (const cell of cells) game.provenance[`${cell}:population`] = causeId;
+    if (resultingGroup !== undefined) {
+      const fields = effect.kind === 'population-state' ? Object.keys(effect.change)
+        : effect.kind === 'population-transition' ? Object.keys(effect.transition)
+          : ['count'];
+      for (const field of fields) game.provenance[`group:${resultingGroup}:${field}`] = causeId;
+    }
+  });
+  const populationCountChanged = proposals.some(({ effect }) =>
+    (effect.kind === 'delta' && effect.field === 'population')
+    || (effect.kind === 'transfer' && effect.resource === 'population')
+    || effect.kind === 'population-transfer'
+    || effect.kind === 'population-delta');
+  if (populationCountChanged) reconcileLegacyPopulation(game.model);
+  if (populationEffects.some(effect => effect.kind !== 'population-state'
+    || effect.amount < (snapshot.populationGroups[effect.cell]?.find(group => group.id === effect.group)?.count ?? 0))) {
+    mergePopulation(game.model);
+  }
 }
 
 export function assertModel(model: DeepReadonly<Model>): void {
+  if (model.archetypeModelVersion !== ARCHETYPE_MODEL_VERSION
+    || !Number.isSafeInteger(model.nextPopulationGroupId)
+    || model.nextPopulationGroupId < 1
+    || model.populationGroups.length !== model.cells.length) {
+    throw new Error('Invalid population model.');
+  }
+  const groupIds = new Set<number>();
+  for (const cell of model.cells) {
+    const groups = model.populationGroups[cell.id];
+    if (!Array.isArray(groups) || (cell.biome === 'water' && groups.length > 0)) {
+      throw new Error(`Invalid population groups in mapxel ${cell.id}.`);
+    }
+    let total = 0;
+    for (const group of groups) {
+      if (!group.attitudes || ['environmentalism', 'civicLiberty', 'traditionalism', 'solidarity']
+        .some(field => !Number.isFinite(group.attitudes[field as keyof typeof group.attitudes]))) {
+        throw new Error(`Invalid population group ${group.id}.`);
+      }
+      const numbers = [group.count, group.age, group.education, group.income, group.wealth,
+        group.health, group.wellbeing, group.approval, ...Object.values(group.attitudes)];
+      if (!Number.isSafeInteger(group.id) || group.id < 1 || group.id >= model.nextPopulationGroupId
+        || groupIds.has(group.id) || !Number.isInteger(group.archetype)
+        || group.archetype < 0 || group.archetype >= ARCHETYPE_COUNT
+        || numbers.some(value => !Number.isFinite(value) || value < -1e-9)
+        || ['education', 'health', 'wellbeing', 'approval'].some(field =>
+          group[field as 'education' | 'health' | 'wellbeing' | 'approval'] > 1 + 1e-9)
+        || (Object.values(group.attitudes) as number[]).some(value => value > 1 + 1e-9)
+        || !['child', 'adult', 'senior'].includes(group.lifeStage)
+        || (group.occupation !== null && !SECTORS.includes(group.occupation))
+        || typeof group.employed !== 'boolean') {
+        throw new Error(`Invalid population group ${group.id}.`);
+      }
+      groupIds.add(group.id);
+      total += group.count;
+    }
+    if (Math.abs(total - cell.population) > Math.max(1e-6, cell.population * 1e-9)) {
+      throw new Error(`Population group count differs from mapxel ${cell.id}.`);
+    }
+  }
   const publicAccounts = [model.treasury, model.debt, model.externalCash];
   if (!publicAccounts.every(value => Number.isFinite(value) && value >= -1e-5)) {
     throw new Error('Invalid public accounts.');

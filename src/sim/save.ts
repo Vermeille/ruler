@@ -1,5 +1,7 @@
 import { assertModel } from './engine';
 import { validateAction } from './policy';
+import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
+import { generatePopulation } from './population/generate';
 import {
   LAWS,
   MUTABLE_FIELDS,
@@ -42,7 +44,8 @@ function parseSave(text: string): Record<string, unknown> {
     return fail();
   }
 
-  if (!isRecord(data) || (data.version !== 1 && data.version !== 2 && data.version !== 3) || !isRecord(data.model)) {
+  if (!isRecord(data) || typeof data.version !== 'number'
+    || ![1, 2, 3, 4].includes(data.version) || !isRecord(data.model)) {
     return fail();
   }
 
@@ -75,6 +78,15 @@ function migrateSave(data: Record<string, unknown>): void {
     if ('minimumWage' in model.policy) return fail();
     model.policy.minimumWage = 0;
     data.version = 3;
+  }
+
+  if (data.version === 3) {
+    if (!Array.isArray(model.cells) || !isSafeString(model.seed)) return fail();
+    const generated = generatePopulation(model.seed, model.cells as Mapxel[]);
+    model.populationGroups = generated.groups;
+    model.nextPopulationGroupId = generated.nextId;
+    model.archetypeModelVersion = ARCHETYPE_MODEL_VERSION;
+    data.version = 4;
   }
 }
 
@@ -139,6 +151,37 @@ function validateCells(model: Record<string, unknown>, original: Game): void {
   const cells = model.cells as unknown[];
   for (let index = 0; index < cells.length; index += 1) {
     validateCell(cells[index], original.model.cells[index]);
+  }
+}
+
+function validatePopulation(model: Record<string, unknown>, original: Game): void {
+  if (model.archetypeModelVersion !== ARCHETYPE_MODEL_VERSION
+    || !Number.isSafeInteger(model.nextPopulationGroupId)
+    || !Array.isArray(model.populationGroups)
+    || model.populationGroups.length !== original.model.cells.length) return fail();
+  let count = 0;
+  for (const cellGroups of model.populationGroups) {
+    if (!Array.isArray(cellGroups)) return fail();
+    count += cellGroups.length;
+    if (count > 2_000_000) return fail();
+    for (const group of cellGroups) {
+      if (!isRecord(group) || !isRecord(group.attitudes)
+        || !Number.isSafeInteger(group.id)
+        || !Number.isInteger(group.archetype)
+        || !isFiniteNumber(group.count)
+        || !isFiniteNumber(group.age)
+        || !isFiniteNumber(group.education)
+        || !isFiniteNumber(group.income)
+        || !isFiniteNumber(group.wealth)
+        || !isFiniteNumber(group.health)
+        || !isFiniteNumber(group.wellbeing)
+        || !isFiniteNumber(group.approval)
+        || typeof group.employed !== 'boolean'
+        || !['child', 'adult', 'senior'].includes(String(group.lifeStage))
+        || (group.occupation !== null && !SECTORS.includes(group.occupation as never))
+        || ['environmentalism', 'civicLiberty', 'traditionalism', 'solidarity'].some(
+          field => !isFiniteNumber((group.attitudes as Record<string, unknown>)[field]))) return fail();
+    }
   }
 }
 
@@ -247,11 +290,20 @@ function tickValidator(currentTick: number): (tick: unknown) => boolean {
 function validateObservation(
   observation: unknown,
   isCell: (id: unknown) => boolean,
+  nextGroupId: number,
 ): void {
   if (
     !isRecord(observation)
     || (observation.cell !== undefined && !isCell(observation.cell))
-    || !MUTABLE_FIELDS.includes(observation.field as never)
+    || (observation.group === undefined
+      ? !MUTABLE_FIELDS.includes(observation.field as never)
+      : (!Number.isSafeInteger(observation.group)
+        || !isCell(observation.cell)
+        || Number(observation.group) < 1
+        || Number(observation.group) >= nextGroupId
+        || !['count', 'employed', 'age', 'education', 'income', 'wealth', 'health', 'wellbeing', 'approval',
+          'environmentalism', 'civicLiberty', 'traditionalism', 'solidarity']
+          .includes(String(observation.field))))
     || !isFiniteNumber(observation.value)
     || !isSafeString(observation.label)
   ) {
@@ -263,6 +315,7 @@ function validateCauses(
   causes: unknown[],
   isCell: (id: unknown) => boolean,
   isTick: (tick: unknown) => boolean,
+  nextGroupId: number,
 ): Set<string> {
   const knownIds = new Set<string>();
 
@@ -286,7 +339,7 @@ function validateCauses(
     }
 
     for (const observation of cause.observations) {
-      validateObservation(observation, isCell);
+      validateObservation(observation, isCell, nextGroupId);
     }
 
     knownIds.add(cause.id);
@@ -423,6 +476,7 @@ export function deserialize(text: string): Game {
   validateTimeline(data, model);
   validateWorldTopology(model, original);
   validateCells(model, original);
+  validatePopulation(model, original);
 
   const game = data as unknown as Game;
   validatePolicy(model, game);
@@ -430,7 +484,8 @@ export function deserialize(text: string): Game {
 
   const isCell = cellValidator(game);
   const isTick = tickValidator(Number(model.tick));
-  const knownCauseIds = validateCauses(data.causes as unknown[], isCell, isTick);
+  const knownCauseIds = validateCauses(data.causes as unknown[], isCell, isTick,
+    Number(model.nextPopulationGroupId));
 
   validateArticles(data.articles as unknown[], knownCauseIds, isCell, isTick);
   validateActionLog(data.actionLog as unknown[], game, knownCauseIds, isTick);

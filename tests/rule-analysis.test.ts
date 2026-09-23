@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { analyzeRule } from '../src/dev/rule-analysis';
 import { analyzeRuleInfluence, analyzeRuleInputInfluence } from '../src/dev/rule-influence';
 import { traceStep } from '../src/sim/trace';
+import { step } from '../src/sim/engine';
 import { createGame } from '../src/sim/world';
 
 function analysisFor(ruleId: string) {
-  const game = createGame('causal-lens-test', 18, 14, 48);
+  let game = createGame('causal-lens-test', 18, 14, 48);
+  if (ruleId === 'society.migration') game = step(step(game));
   const trace = traceStep(game);
   const phase = trace.phases.find(candidate => (
     candidate.rules.some(rule => rule.id === ruleId)
@@ -34,7 +36,7 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
   ]) {
     assert.ok(migration.inputs.some(candidate => candidate.key === input), `migration should read ${input}`);
   }
-  assert.ok(migration.outputs.some(output => output.key === 'transfer.population'));
+  assert.ok(migration.outputs.some(output => output.key === 'population.transfer'));
   assert.ok(migration.outputs.some(output => output.key === 'transfer.cash'));
   assert.ok(migration.footprintFlows.length > 0);
 
@@ -49,17 +51,19 @@ test('rule influence traces exact downstream reads and recurrent self-dependenci
     game,
     phase,
     'society.migration',
-    'transfer.population',
+    'population.transfer',
   );
 
   assert.ok(influence.writtenPaths.length > 0);
-  assert.ok(influence.writtenPaths.every(path => path.path.includes('.population')));
+  assert.ok(influence.writtenPaths.some(path => path.path.endsWith('.population')));
+  assert.ok(influence.writtenPaths.some(path => path.path.startsWith('populationGroups.')));
   assert.ok(influence.consumers.some(consumer => (
-    consumer.month === 'next month'
+    consumer.month === 'later month'
+      && consumer.monthsAhead === 3
       && consumer.ruleId === 'society.migration'
       && consumer.self
       && consumer.strength > 0
-  )), 'migration population should feed migration again next month');
+  )), 'migration population should feed the next quarterly decision');
   assert.ok(influence.consumers.some(consumer => (
     consumer.ruleId !== 'society.migration' && consumer.strength > 0
   )), 'migration population should feed at least one other rule');
@@ -100,7 +104,8 @@ test('every current simulation rule can be explained without mutating the game',
       assert.ok(analysis, `analysis missing for ${rule.id}`);
       assert.equal(analysis.ruleId, rule.id);
       assert.equal(analysis.phase, phase.phase);
-      assert.ok(analysis.totalReads > 0, `${rule.id} should expose at least one input`);
+      const structuralReads = analysis.structuralInputs.reduce((sum, input) => sum + input.reads, 0);
+      assert.ok(analysis.totalReads + structuralReads > 0, `${rule.id} should expose at least one input`);
       assert.ok(analysis.analyzedReads <= 72, `${rule.id} should respect the analysis budget`);
       assert.ok(Array.isArray(analysis.downstream));
     }

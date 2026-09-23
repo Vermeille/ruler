@@ -32,6 +32,8 @@ test('a twenty-year baseline settles and small perturbations stay small', () => 
   assert.ok(Math.abs(sa.wealth - sb.wealth) < .01);
   const lastYear = a.history.slice(-12).map(h => h.summary.happiness);
   assert.ok(Math.max(...lastYear) - Math.min(...lastYear) < .015);
+  const maxGroups = Math.max(...a.model.populationGroups.map(groups => groups.length));
+  assert.ok(maxGroups < 160, `population groups grew to ${maxGroups} in one mapxel`);
 });
 test('policing, health spending, and environmental law have measured directional effects', () => {
   const g = tiny('policy-comparison');

@@ -2,6 +2,8 @@
 import { computed, ref, shallowRef, watch } from 'vue';
 import { MUTABLE_FIELDS, type Effect, type Metric, type MutableField } from '../sim/types';
 import { traceStep, type PhaseTrace } from '../sim/trace';
+import { archetypeAt } from '../sim/population/archetypes';
+import { approvalOf, educationOf, employmentOf, populationOf, wellbeingOf } from '../sim/population/selectors';
 import { createGame } from '../sim/world';
 import RuleLens from './RuleLens.vue';
 import './devtools.css';
@@ -48,6 +50,7 @@ const selectedRuleId = ref('all');
 const selectedEffectIndex = ref(0);
 const effectFilter = ref('');
 const selectedCellId = ref(firstLandCellId());
+const selectedGroupId = ref(0);
 const navigationNote = ref('');
 
 const trace = computed(() => traceStep(game.value));
@@ -63,6 +66,50 @@ const activeRule = computed(() => (
   currentPhase.value?.rules.find(rule => rule.id === activeRuleId.value)
 ));
 const landCells = computed(() => game.value.model.cells.filter(cell => cell.biome !== 'water'));
+const localGroups = computed(() => [...(currentPhase.value?.after.populationGroups[selectedCellId.value] ?? [])]
+  .sort((a, b) => b.count - a.count || a.id - b.id));
+const selectedGroup = computed(() => localGroups.value.find(group => group.id === selectedGroupId.value)
+  ?? localGroups.value[0]);
+const selectedArchetype = computed(() => selectedGroup.value && currentPhase.value
+  ? archetypeAt(currentPhase.value.after.seed, selectedGroup.value.archetype,
+    currentPhase.value.after.archetypeModelVersion) : undefined);
+const archetypePresence = computed(() => {
+  const model = currentPhase.value?.after;
+  const id = selectedGroup.value?.archetype;
+  if (!model || id === undefined) return undefined;
+  let population = 0;
+  let cells = 0;
+  let adults = 0;
+  let employed = 0;
+  for (const groups of model.populationGroups) {
+    const present = groups.filter(group => group.archetype === id);
+    if (present.length) cells += 1;
+    population += present.reduce((sum, group) => sum + group.count, 0);
+    adults += present.reduce((sum, group) => sum + (group.lifeStage === 'adult' ? group.count : 0), 0);
+    employed += present.reduce((sum, group) => sum + (group.employed ? group.count : 0), 0);
+  }
+  return { population, cells, employment: adults > 0 ? employed / adults : 0 };
+});
+const localOccupations = computed(() => {
+  const counts = new Map<string, number>();
+  for (const group of localGroups.value) {
+    const key = group.occupation ?? group.lifeStage;
+    counts.set(key, (counts.get(key) ?? 0) + group.count);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+});
+const populationComparison = computed(() => {
+  const model = currentPhase.value?.after;
+  const cell = model?.cells[selectedCellId.value];
+  if (!model || !cell) return [];
+  return [
+    ['Population', cell.population, populationOf(model, cell.id)],
+    ['Employment', cell.employment, employmentOf(model, cell.id)],
+    ['Education', cell.education, educationOf(model, cell.id)],
+    ['Wellbeing', cell.happiness, wellbeingOf(model, cell.id)],
+    ['Approval', cell.approval, approvalOf(model, cell.id)],
+  ] as const;
+});
 
 function firstLandCellId(): number {
   return game.value?.model.cells.find(cell => cell.biome !== 'water')?.id
@@ -83,6 +130,13 @@ function effectTarget(effect: Effect): string {
       return 'public budget';
     case 'event':
       return `event · ${effect.key}`;
+    case 'population-transfer':
+      return `group ${effect.group} · ${effect.from} → ${effect.to}`;
+    case 'population-transition':
+    case 'population-state':
+      return `group ${effect.group} · cell ${effect.cell}`;
+    case 'population-delta':
+      return `cell ${effect.cell} · ${effect.cause}`;
   }
 }
 
@@ -98,6 +152,11 @@ function effectAmount(effect: Effect): string {
       return `debt ${signed(effect.debtDelta)}`;
     case 'event':
       return 'trigger';
+    case 'population-transfer':
+    case 'population-transition':
+    case 'population-state':
+    case 'population-delta':
+      return signed(effect.amount);
   }
 }
 
@@ -486,6 +545,39 @@ function json(value: unknown): string {
           </div>
           <p v-if="!cellChanges.length" class="dev-note">This phase did not change the selected mapxel.</p>
         </div>
+
+        <section class="population-box">
+          <span class="dev-kicker">SHADOW POPULATION · {{ localGroups.length }} GROUPS</span>
+          <div class="population-comparison" v-for="[label, legacy, derived] in populationComparison" :key="label">
+            <span>{{ label }}</span><span>{{ formatMetric(legacy, label !== 'Population') }}</span>
+            <strong>{{ formatMetric(derived, label !== 'Population') }}</strong>
+          </div>
+          <p class="dev-note">Mapxel value / group-derived value</p>
+          <div class="population-comparison" v-for="[occupation, count] in localOccupations" :key="occupation">
+            <span>{{ occupation }}</span><strong>{{ count.toFixed(1) }} people</strong>
+          </div>
+          <label class="cell-select-label" v-if="selectedGroup">
+            Population group
+            <select v-model.number="selectedGroupId" aria-label="Inspect population group">
+              <option v-for="group in localGroups" :key="group.id" :value="group.id">
+                #{{ group.id }} · archetype {{ group.archetype }} · {{ group.count.toFixed(1) }} people
+              </option>
+            </select>
+          </label>
+          <dl v-if="selectedGroup" class="population-detail">
+            <div><dt>Stage / age</dt><dd>{{ selectedGroup.lifeStage }} · {{ selectedGroup.age.toFixed(1) }}</dd></div>
+            <div><dt>Work</dt><dd>{{ selectedGroup.employed ? 'employed' : 'not employed' }} · {{ selectedGroup.occupation ?? 'none' }}</dd></div>
+            <div><dt>Education</dt><dd>{{ formatMetric(selectedGroup.education, true) }}</dd></div>
+            <div><dt>Income / wealth</dt><dd>{{ selectedGroup.income.toFixed(2) }} / {{ selectedGroup.wealth.toFixed(2) }}</dd></div>
+            <div><dt>Health</dt><dd>{{ formatMetric(selectedGroup.health, true) }}</dd></div>
+            <div><dt>Wellbeing / approval</dt><dd>{{ formatMetric(selectedGroup.wellbeing, true) }} / {{ formatMetric(selectedGroup.approval, true) }}</dd></div>
+            <div v-if="selectedArchetype"><dt>Mobility / attachment</dt><dd>{{ formatMetric(selectedArchetype.traits.mobility, true) }} / {{ formatMetric(selectedArchetype.traits.communityAttachment, true) }}</dd></div>
+            <div v-if="selectedArchetype"><dt>Adaptability</dt><dd>{{ formatMetric(selectedArchetype.traits.adaptability, true) }}</dd></div>
+            <div v-if="selectedArchetype"><dt>Environmentalism: baseline / current</dt><dd>{{ formatMetric(selectedArchetype.values.environmentalism, true) }} / {{ formatMetric(selectedGroup.attitudes.environmentalism, true) }}</dd></div>
+            <div v-if="archetypePresence"><dt>Archetype nationally</dt><dd>{{ archetypePresence.population.toFixed(1) }} in {{ archetypePresence.cells }} mapxels</dd></div>
+            <div v-if="archetypePresence"><dt>Archetype adult employment</dt><dd>{{ formatMetric(archetypePresence.employment, true) }}</dd></div>
+          </dl>
+        </section>
 
         <section class="account-box">
           <span class="dev-kicker">PUBLIC ACCOUNTS</span>

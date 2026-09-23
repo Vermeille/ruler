@@ -6,6 +6,9 @@ import {
   tradeRule,
 } from './rules/economy';
 import { eventRule } from './rules/events';
+import { populationExperienceRule } from './population/experience';
+import { populationAgingRule, populationDemographicsRule } from './population/demographics';
+import { retrainingRule } from './population/retraining';
 import { migrationRule, societyRule } from './rules/society';
 import { financingRule, fiscalRule, taxationRule } from './rules/state';
 import type { Rule } from './types';
@@ -19,6 +22,10 @@ export {
   marketRule,
   migrationRule,
   productionRule,
+  populationExperienceRule,
+  populationAgingRule,
+  populationDemographicsRule,
+  retrainingRule,
   societyRule,
   taxationRule,
   tradeRule,
@@ -33,7 +40,11 @@ export const defaultRules: readonly Rule[] = [
   financingRule,
   fiscalRule,
   societyRule,
+  populationExperienceRule,
+  populationAgingRule,
+  populationDemographicsRule,
   migrationRule,
   adaptationRule,
+  retrainingRule,
   eventRule,
 ];
