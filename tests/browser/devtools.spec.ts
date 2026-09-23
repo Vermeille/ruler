@@ -76,16 +76,16 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(page.getByRole('heading', { name: 'adaptation', exact: true })).toBeVisible();
   await expect(lens).toContainText('economy.labor');
 
-  // Next-month consumers open the exact next preview tick rather than a lookalike current-tick rule.
+  // Time-qualified edges keep their meaning, but navigation stays in the current month.
   await phases.getByRole('button', { name: /migration/ }).click();
   const nextProduction = graph.locator('.rule-graph-node-consumer.next').filter({ hasText: 'economy.production' });
   await expect(nextProduction).toBeVisible();
   await nextProduction.click();
-  await expect(page.locator('.dev-panel-heading').first()).toContainText('Month 2');
   await expect(page.getByRole('heading', { name: 'production', exact: true })).toBeVisible();
   await expect(lens).toContainText('economy.production');
-  await expect(page.getByRole('button', { name: 'Return to month 1' })).toBeVisible();
-  await page.getByRole('button', { name: 'Return to month 1' }).click();
+  await expect(page.locator('.phase-title-row')).toContainText('showing its current-month value');
+  await expect(page.locator('.dev-state-badge')).toContainText('tick 0');
+  await expect(page.getByRole('button', { name: /Return to month/ })).toHaveCount(0);
 
   await phases.getByRole('button', { name: /trade/ }).click();
   await expect(page.getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
