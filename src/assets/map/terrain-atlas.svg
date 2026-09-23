@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="576" height="96" viewBox="0 0 576 96" fill="none">
+  <g stroke="#29473d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(0 0)">
+      <path d="M10 78 39 27l13 21 8-11 27 41H10Z" fill="#7e8b78"/>
+      <path d="m31 41 8-14 9 15-7-3-5 5-5-3Z" fill="#f4f0dc" stroke="none"/>
+      <path d="m55 45 5-8 7 11-6-2-3 3-3-4Z" fill="#f4f0dc" stroke="none"/>
+      <path d="M17 78h68"/>
+    </g>
+    <g transform="translate(96 0)">
+      <path d="M28 76V57M49 79V52M69 76V59" stroke="#6b4b39"/>
+      <path d="m28 19-18 35h36L28 19Z" fill="#4f7658"/>
+      <path d="m49 11-22 45h44L49 11Z" fill="#335f48"/>
+      <path d="m69 26-16 34h32L69 26Z" fill="#5d845f"/>
+      <path d="M15 79h69"/>
+    </g>
+    <g transform="translate(192 0)">
+      <path d="M9 70c21-9 48-10 78-1v13H9V70Z" fill="#d4bf70"/>
+      <path d="M18 68V50l15-10 15 10v18" fill="#f2dfb3"/>
+      <path d="m15 51 18-13 18 13" fill="#b7654f"/>
+      <path d="M27 68V56h12v12" fill="#8a6245"/>
+      <path d="M56 48c9 4 19 12 27 25M56 58c9 3 16 8 23 15M55 69c7 1 13 3 18 7" stroke="#71804f"/>
+      <path d="M10 81h76"/>
+    </g>
+    <g transform="translate(288 0)">
+      <path d="M12 48c15-7 30-8 43-4 11 3 20 2 29-3v38H12V48Z" fill="#d7c996"/>
+      <path d="M10 62c10-8 20-8 30 0s20 8 30 0 16-7 18-5" stroke="#4f8e8d"/>
+      <path d="M10 73c10-8 20-8 30 0s20 8 30 0 16-7 18-5" stroke="#6ba9a6"/>
+      <path d="M19 43c7-4 14-5 22-4" stroke="#63805a"/>
+    </g>
+    <g transform="translate(384 0)">
+      <path d="M12 78h73"/>
+      <path d="M17 76V51l18-15 18 15v25H17Z" fill="#f1d9b6"/>
+      <path d="m13 52 22-19 22 19" fill="#b86655"/>
+      <path d="M30 76V60h11v16" fill="#8b6249"/>
+      <path d="M55 76V58l13-11 14 11v18H55Z" fill="#ead2aa"/>
+      <path d="m52 59 16-14 17 14" fill="#8d6f55"/>
+      <path d="M62 64h6M75 64h3"/>
+      <path d="M23 55h7M40 55h7"/>
+      <path d="M22 31v-9h7v4"/>
+    </g>
+    <g transform="translate(480 0)">
+      <path d="M10 80h77"/>
+      <path d="M16 77V42h18v35H16Z" fill="#76918a"/>
+      <path d="M36 77V25h21v52H36Z" fill="#5f7f78"/>
+      <path d="M60 77V36h21v41H60Z" fill="#89a19a"/>
+      <path d="M21 51h7M21 60h7M21 69h7M42 35h8M42 45h8M42 55h8M42 65h8M66 46h8M66 56h8M66 66h8" stroke="#f1e7c8" stroke-width="3"/>
+      <path d="M40 25h13l-3-7h-7l-3 7Z" fill="#b96c58"/>
+    </g>
+  </g>
+</svg>
