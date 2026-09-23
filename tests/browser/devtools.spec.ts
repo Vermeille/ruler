@@ -6,11 +6,13 @@ test('simulation workbench previews phases, effects, cells, and commits a month'
 
   await page.goto('/?dev=1');
   await expect(page.getByRole('heading', { name: 'See the engine think.' })).toBeVisible();
-  await expect(page.getByText('production', { exact: true })).toBeVisible();
-  await expect(page.getByText('events', { exact: true })).toBeVisible();
 
-  await page.getByText('trade', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'trade' })).toBeVisible();
+  const phases = page.locator('.dev-phases');
+  await expect(phases.getByRole('button', { name: /production/ })).toBeVisible();
+  await expect(phases.getByRole('button', { name: /events/ })).toBeVisible();
+
+  await phases.getByRole('button', { name: /trade/ }).click();
+  await expect(page.getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
   await expect(page.getByRole('listbox', { name: 'Simulation effects' })).toBeVisible();
 
   await page.getByLabel('Filter effects').fill('food');
