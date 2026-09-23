@@ -4,6 +4,7 @@ import {
   SECTORS,
   type DeepReadonly,
   type Effect,
+  type Evidence,
   type Mapxel,
   type Rule,
 } from '../types';
@@ -59,7 +60,7 @@ function tradeEvidence(
   seller: DeepReadonly<Mapxel>,
   buyer: DeepReadonly<Mapxel>,
   amount: number,
-): Effect['evidence'] {
+): Evidence | undefined {
   if (buyer.foodSecurity >= 0.92 || amount <= buyer.population * 0.1) {
     return undefined;
   }
