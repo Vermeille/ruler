@@ -150,11 +150,14 @@ function handleVisibility(): void {
   if (document.hidden && running.value) pause();
 }
 
+// Run synchronously with the Game assignment. During autosave restoration
+// `ready` is still false, so an already-finished save does not reopen the
+// report. Live transitions to an ended mandate still open it immediately.
 watch(game, (next, previous) => {
   if (ready.value && next.ended && !previous?.ended) {
     openModal({ kind: 'report' });
   }
-});
+}, { flush: 'sync' });
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown);
