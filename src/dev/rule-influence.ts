@@ -22,6 +22,7 @@ export interface RuleConsumer {
   phase: string;
   month: 'this month' | 'next month';
   self: boolean;
+  strength: number;
   paths: InfluencePath[];
 }
 
@@ -218,6 +219,7 @@ function collectConsumers(
         phase: rule.phase,
         month,
         self: rule.id === ruleId,
+        strength: matched.length / Math.max(1, writes.length),
         paths: matched.slice(0, 6),
       });
     }
