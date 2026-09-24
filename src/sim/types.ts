@@ -81,6 +81,17 @@ export interface PopulationGroup {
   health: number;
   wellbeing: number;
   approval: number;
+  /** Slow memory of whether this group's lived circumstances are improving or deteriorating. */
+  outlook: number;
+  /** Latent willingness to join collective political action. */
+  mobilization: number;
+  /** Share-like infection load carried with the group when it moves. */
+  infection: number;
+  /** Temporary attention multipliers over durable archetype needs. */
+  salienceFood: number;
+  salienceHealth: number;
+  salienceSafety: number;
+  salienceEducation: number;
   attitudes: {
     environmentalism: number;
     civicLiberty: number;
@@ -107,12 +118,17 @@ export interface StepPeopleSummary {
   readonly averageHealth: number;
   readonly averageWellbeing: number;
   readonly averageApproval: number;
+  readonly averageOutlook: number;
+  readonly averageMobilization: number;
+  readonly averageInfection: number;
   readonly occupationShares: Readonly<Record<Sector, number>>;
 }
 
 /** Ephemeral, immutable summaries available to every rule during one step. */
 export interface StepCache {
   readonly peopleByCell: readonly StepPeopleSummary[];
+  readonly nationalAverageWellbeing: number;
+  readonly regionAverageWellbeing: readonly number[];
 }
 
 type NumericPopulationGroupField = {
@@ -161,6 +177,24 @@ export interface Mapxel {
   employment: number;
   foodSecurity: number;
   sportsInterest: number;
+
+  /** Staffed/usable service capacity measured in resident-equivalent demand units. */
+  healthCapacity: number;
+  educationCapacity: number;
+  /** Temporary failures caused by sustained overload; these recover instead of permanently deleting capacity. */
+  healthDisruption: number;
+  educationDisruption: number;
+  infrastructureDisruption: number;
+  /** Compatibility projections of authoritative resident state. */
+  unrest: number;
+  infection: number;
+  /** Temporary adjustment pressure and per-place memories used to detect abrupt policy changes. */
+  policyAdjustment: number;
+  policyTaxBaseline: number;
+  policySpendingBaseline: number;
+  policyWageBaseline: number;
+  policyRightsBaseline: number;
+  policySubsidyBaseline: number;
 
   agriculture: number;
   manufacturing: number;
@@ -419,6 +453,7 @@ export const PHASES = [
   'taxation',
   'financing',
   'fiscal',
+  'services',
   'society',
   'experience',
   'behavior',
