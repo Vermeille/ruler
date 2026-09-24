@@ -100,32 +100,27 @@ function employmentTransitions(
   return effects;
 }
 
-function averageNeighborWealth(
-  model: DeepReadonly<Model>,
-  neighbors: readonly DeepReadonly<Mapxel>[],
-): number {
-  const total = neighbors.reduce(
-    (sum, neighbor) => sum + averageWealthOf(model, neighbor.id),
-    0,
-  );
-  return total / Math.max(1, neighbors.length);
-}
-
 export const societyRule: Rule = {
   id: 'society.wellbeing',
   phase: 'society',
   description: 'People-facing conditions respond to poverty, actual employment, services, health, food, pollution, and civil liberties.',
   run({ model }) {
-    return model.cells.filter(isLand).flatMap(cell => {
+    const effects: Effect[] = [];
+    const wealthByCell = model.cells.map(cell => cell.biome === 'water' ? 0 : averageWealthOf(model, cell.id));
+    const employmentByCell = model.cells.map(cell => cell.biome === 'water' ? 0 : employmentOf(model, cell.id));
+
+    for (const cell of model.cells) {
+      if (!isLand(cell)) continue;
       const spending = model.policy.spending;
       const funding = model.budget.funding;
-      const wealth = averageWealthOf(model, cell.id);
-      const actualEmployment = employmentOf(model, cell.id);
+      const wealth = wealthByCell[cell.id];
+      const actualEmployment = employmentByCell[cell.id];
       const neighbors = model.neighbors[cell.id].map(id => model.cells[id]);
       const neighborIndustry = neighbors.length
         ? neighbors.reduce((sum, neighbor) => sum + neighbor.manufacturing, 0) / neighbors.length
         : cell.manufacturing;
-      const neighborWealth = averageNeighborWealth(model, neighbors);
+      const neighborWealth = neighbors.reduce((sum, neighbor) => sum + wealthByCell[neighbor.id], 0)
+        / Math.max(1, neighbors.length);
       const inequality = clamp((neighborWealth - wealth) / 40);
       const poverty = clamp((24 - wealth) / 24);
       const police = spending.police * funding;
@@ -223,22 +218,25 @@ export const societyRule: Rule = {
       const childrenTarget = clamp(0.15 + cell.happiness * 0.09, 0.12, 0.28);
       const seniorsTarget = clamp(0.12 + cell.health * 0.07, 0.12, 0.22);
 
-      return [
+      effects.push(
         changeToward(cell, 'crime', crimeTarget, 0.12, crimeEvidence),
         changeToward(cell, 'health', healthTarget, 0.045),
         changeToward(cell, 'education', educationTarget, 0.025),
         changeToward(cell, 'infrastructure', infrastructureTarget, 0.06),
         changeToward(cell, 'pollution', pollutionTarget, 0.08),
         changeToward(cell, 'employment', jobsTarget, 0.1, employmentEvidence),
-        ...employmentTransitions(cell, model, viability),
+      );
+      effects.push(...employmentTransitions(cell, model, viability));
+      effects.push(
         changeToward(cell, 'happiness', happinessTarget, 0.09),
         changeToward(cell, 'approval', approvalTarget, 0.12),
         changeToward(cell, 'sportsInterest', sportsInterestTarget, 0.06),
         delta(cell, 'starvationDeaths', starvationDeaths - cell.starvationDeaths),
         changeToward(cell, 'children', childrenTarget, 0.008),
         changeToward(cell, 'seniors', seniorsTarget, 0.005),
-      ];
-    });
+      );
+    }
+    return effects;
   },
 };
 
