@@ -7,29 +7,17 @@ export interface GeneratedPopulation {
   nextId: number;
 }
 
-function candidateArchetypes(seed: string, cell: Mapxel): number[] {
-  const ids = new Set<number>();
-
-  // Most local population types come from a shared regional pool. Adjacent places should
-  // have overlapping populations, rather than six unrelated archetypes on either side of
-  // a road. A smaller cell-local pool keeps genuine local variation and lets geography
-  // select different subsets of the same regional population.
-  for (let index = 0; ids.size < 14; index += 1) {
-    ids.add(Math.floor(randomAt(seed, 'regional-archetype', cell.region, index) * ARCHETYPE_COUNT));
-  }
-  for (let index = 0; ids.size < 20; index += 1) {
-    ids.add(Math.floor(randomAt(seed, 'local-archetype', cell.id, index) * ARCHETYPE_COUNT));
-  }
-  return [...ids];
-}
-
 /** Build sparse local groups from the legacy aggregate at the current tick. */
 export function generatePopulation(seed: string, cells: readonly Mapxel[]): GeneratedPopulation {
   let nextId = 1;
   const groups = cells.map(cell => {
     if (cell.biome === 'water' || cell.population <= 0) return [];
 
-    const selected = candidateArchetypes(seed, cell).map(id => {
+    const candidateIds = new Set<number>();
+    for (let index = 0; candidateIds.size < 20; index += 1) {
+      candidateIds.add(Math.floor(randomAt(seed, 'local-archetype', cell.id, index) * ARCHETYPE_COUNT));
+    }
+    const selected = [...candidateIds].map(id => {
       const archetype = archetypeAt(seed, id);
       const sectorFit = SECTORS.reduce((sum, sector) => sum + cell[sector] * archetype.affinities[sector], 0);
       const educationFit = 1 - Math.abs(cell.education - archetype.affinities.education);
