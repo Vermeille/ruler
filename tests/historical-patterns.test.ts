@@ -8,7 +8,7 @@ import { defaultRules } from '../src/sim/rules';
 import type { Action, Game } from '../src/sim/types';
 
 // These are qualitative mechanism tests. They are not country reconstructions.
-const rules = defaultRules.filter(rule => rule.phase !== 'events');
+const rules = defaultRules.filter(rule => rule.id !== 'stories.events');
 const seeds = ['alder-42', 'marlow'];
 const services = ['health', 'education', 'police', 'infrastructure', 'welfare', 'culture', 'environment'] as const;
 const spending = (amount: number): Action[] => services.map(service => ({ type: 'spending', service, amount }));

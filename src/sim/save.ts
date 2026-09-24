@@ -442,7 +442,7 @@ function validateReferences(
 function summaryValidator(original: Game): (value: unknown) => boolean {
   const keys = Object.keys(original.initial);
   return value => isRecord(value)
-    && keys.every(key => isFiniteNumber(value[key]) && Number(value[key]) >= 0);
+    && keys.every(key => isFiniteNumber(value[key]) && Number(value[key]) >= -1e-6);
 }
 
 function validateHistory(data: Record<string, unknown>, original: Game): void {

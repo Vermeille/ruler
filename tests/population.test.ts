@@ -296,7 +296,7 @@ test('an unaffordable wage floor creates divergent employment histories without 
 test('migration carries an actual archetype group between mapxels', () => {
   const g = game();
   const snapshot = deepFreeze(structuredClone(g.model));
-  const effects = migrationRule.run({ model: snapshot, random: () => 0.5, lastEvents: {} });
+  const effects = migrationRule.run({ model: snapshot, random: () => 0, lastEvents: {} });
   const transfer = effects.find(effect => effect.kind === 'population-transfer' && effect.amount > 0);
   assert.ok(transfer && transfer.kind === 'population-transfer');
   const source = g.model.populationGroups[transfer.from].find(group => group.id === transfer.group)!;

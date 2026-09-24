@@ -9,7 +9,7 @@ import type { Action, Game, Summary } from '../src/sim/types';
 
 // Scenario labels describe exact available controls, not real political systems.
 // Remove chance events so each paired run differs only by its stated intervention.
-const rules = defaultRules.filter(rule => rule.phase !== 'events');
+const rules = defaultRules.filter(rule => rule.id !== 'stories.events');
 const seeds = ['alder-42', 'marlow'];
 const services = ['health', 'education', 'police', 'infrastructure', 'welfare', 'culture', 'environment'] as const;
 const tax = (rate: number): Action[] => [{ type: 'tax', tax: 'incomeTax', rate }, { type: 'tax', tax: 'businessTax', rate }];

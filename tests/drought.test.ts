@@ -30,7 +30,7 @@ test('a regional drought reduces the next local harvest beyond lost food stocks'
 });
 
 test('sustained regional drought cuts local harvests and drives hardship and outward migration', () => {
-  const regular = defaultRules.filter(rule => rule.phase !== 'events');
+  const regular = defaultRules.filter(rule => rule.id !== 'stories.events');
   const weather: Rule = {
     id: 'scenario.sustained-drought', phase: 'events', description: 'An exogenous regional dry period',
     run({ model }) {

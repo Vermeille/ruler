@@ -8,7 +8,7 @@ import { consumptionRule, defaultRules, eventRule, marketRule, tradeRule } from 
 import type { Action, Game, Mapxel } from '../src/sim/types';
 
 // Paired trajectories use the same seed and exclude discrete events so policy is the only input difference.
-const rules = defaultRules.filter(r => r.phase !== 'events');
+const rules = defaultRules.filter(r => r.id !== 'stories.events');
 type Frame = ReturnType<typeof summarize> & { revenue: number; funding: number; agriculture: number; businessHealth: number };
 function trajectory(seed: string, actions: Action[] = [], months = 48): Frame[] {
   let g: Game = createGame(seed, 12, 12, months);
