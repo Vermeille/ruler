@@ -1,15 +1,13 @@
 import { clamp } from '../../math';
 import { archetypeAt } from '../../population/archetypes';
-import {
-  SECTORS,
-  type DeepReadonly,
-  type Effect,
-  type Mapxel,
-  type Model,
-  type PopulationGroup,
-  type Sector,
+import type {
+  DeepReadonly,
+  Effect,
+  Mapxel,
+  Model,
+  PopulationGroup,
+  Sector,
 } from '../../types';
-import { changeToward, read } from '../helpers';
 import { viableJobs } from '../wages';
 
 export type SectorViability = Record<Sector, number>;
@@ -24,27 +22,6 @@ export function viabilityOf(
     services: viableJobs(cell, model, 'services'),
     sports: viableJobs(cell, model, 'sports'),
   };
-}
-
-/** Legacy mapxel projection used for diagnostics during the authority migration. */
-function employmentTarget(
-  cell: DeepReadonly<Mapxel>,
-  model: DeepReadonly<Model>,
-  viability: SectorViability,
-): number {
-  const affordableJobs = SECTORS.reduce(
-    (sum, sector) => sum + cell[sector] * viability[sector],
-    0,
-  );
-  const ordinaryJobs = clamp(
-    0.96
-      - (1 - cell.businessHealth) * cell.services * 0.6
-      - model.policy.businessTax * 0.12
-      - (1 - cell.foodSecurity) * 0.05,
-    0.45,
-    0.98,
-  );
-  return clamp(ordinaryJobs * affordableJobs, 0.05, 0.98);
 }
 
 function desiredEmployedAdults(
@@ -134,30 +111,5 @@ export function employmentEffects(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
 ): Effect[] {
-  const viability = viabilityOf(cell, model);
-  const affordableJobs = SECTORS.reduce(
-    (sum, sector) => sum + cell[sector] * viability[sector],
-    0,
-  );
-  const jobsTarget = employmentTarget(cell, model, viability);
-  const employmentEvidence = affordableJobs < 0.6
-    && cell.employment > jobsTarget + 0.1
-    && model.tick % 3 === 0
-    ? {
-        title: `${cell.name}: firms cut hiring`,
-        detail: `At a ₡${model.policy.minimumWage.toFixed(2)} wage floor, only ${(affordableJobs * 100).toFixed(0)}% of the previous occupational mix can cover payroll. Actual job losses are assigned to population groups separately.`,
-        cells: [cell.id],
-        reads: [
-          read(cell, 'output', 'Local production'),
-          read(cell, 'businessHealth', 'Business viability'),
-          read(cell, 'employment', 'Previous employment projection'),
-        ],
-        parents: ['policy:minimumWage'],
-      }
-    : undefined;
-
-  return [
-    changeToward(cell, 'employment', jobsTarget, 0.1, employmentEvidence),
-    ...employmentTransitions(cell, model, viability),
-  ];
+  return employmentTransitions(cell, model, viabilityOf(cell, model));
 }
