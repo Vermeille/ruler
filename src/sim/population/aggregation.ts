@@ -123,13 +123,12 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
 }
 
 /**
- * Materialize human aggregates back onto mapxels for legacy economic rules, summaries, and UI.
- * Population groups are authoritative; these fields are projections, not an independent social model.
- * Running in the final phase also means next month's economy reads the people produced by this month.
+ * Materialize authoritative human state into mapxel caches after all behavior and event phases.
+ * This is a projection only: social rules must change PopulationGroup state, not these fields.
  */
 export const populationAggregationRule: Rule = {
   id: 'population.aggregate',
-  phase: 'events',
+  phase: 'projection',
   description: 'Project settled population groups into mapxel employment, wellbeing, approval, demographics, and occupational shares.',
   run({ model }) {
     const effects: Effect[] = [];
