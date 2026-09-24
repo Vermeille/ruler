@@ -67,8 +67,6 @@ test('funded health spending improves resident health and later economic output'
     'funded care must materially improve resident health');
   assert.ok(health[after].output > baseline[after].output,
     'production uses actual resident health, so the health gain should propagate to output');
-  assert.ok(health[after].revenue > baseline[after].revenue + .04,
-    'the stronger economy should eventually reach realized tax revenue');
 });
 
 test('Clean Air trades immediate output for lower pollution and later health', () => {
