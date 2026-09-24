@@ -395,6 +395,7 @@ export const PHASES = [
   'fiscal',
   'society',
   'experience',
+  'behavior',
   'aging',
   'lifeStage',
   'demographics',
