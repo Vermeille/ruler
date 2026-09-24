@@ -1,11 +1,13 @@
 import { clamp } from '../../math';
 import { archetypeAt } from '../../population/archetypes';
 import { quantizeCohortFlow } from '../../population/resolution';
+import { wellbeingOf } from '../../population/selectors';
 import type {
   Archetype,
   DeepReadonly,
   Effect,
   Mapxel,
+  Model,
   PopulationGroup,
   Rule,
 } from '../../types';
@@ -13,6 +15,7 @@ import { isLand } from '../helpers';
 import { viabilityOf } from './labor';
 
 function migrationAppeal(
+  model: DeepReadonly<Model>,
   group: DeepReadonly<PopulationGroup>,
   archetype: Archetype,
   cell: DeepReadonly<Mapxel>,
@@ -56,9 +59,7 @@ function migrationAppeal(
     + needs.culture * culture
   ) / weight;
 
-  // Community mood is itself a projection of residents after population.aggregate.
-  // It is a small shared contextual signal, not the source of the migration amount.
-  const communityMood = atHome ? group.wellbeing : cell.happiness;
+  const communityMood = atHome ? group.wellbeing : wellbeingOf(model, cell.id);
   return lived + communityMood * 0.25;
 }
 
@@ -86,6 +87,7 @@ export const migrationRule: Rule = {
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
         const originJobChance = group.occupation ? originViability[group.occupation] : 0.5;
         const originAppeal = migrationAppeal(
+          model,
           group,
           archetype,
           from,
@@ -101,6 +103,7 @@ export const migrationRule: Rule = {
           if (to.biome === 'water') continue;
           const jobChance = group.occupation ? viability[to.id]![group.occupation] : 0.5;
           const advantage = migrationAppeal(
+            model,
             group,
             archetype,
             to,
