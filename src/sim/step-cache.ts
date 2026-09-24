@@ -28,6 +28,9 @@ export function buildStepCache(model: DeepReadonly<Model>): DeepReadonly<StepCac
     let health = 0;
     let wellbeing = 0;
     let approval = 0;
+    let outlook = 0;
+    let mobilization = 0;
+    let infection = 0;
     const occupationCounts = zeroOccupationShares();
 
     for (const group of groups) {
@@ -39,6 +42,9 @@ export function buildStepCache(model: DeepReadonly<Model>): DeepReadonly<StepCac
       health += count * group.health;
       wellbeing += count * group.wellbeing;
       approval += count * group.approval;
+      outlook += count * group.outlook;
+      mobilization += count * group.mobilization;
+      infection += count * group.infection;
 
       if (group.lifeStage === 'child') {
         children += count;
@@ -79,12 +85,34 @@ export function buildStepCache(model: DeepReadonly<Model>): DeepReadonly<StepCac
       averageHealth: health / populationDivisor,
       averageWellbeing: wellbeing / populationDivisor,
       averageApproval: approval / populationDivisor,
+      averageOutlook: outlook / populationDivisor,
+      averageMobilization: mobilization / populationDivisor,
+      averageInfection: infection / populationDivisor,
       occupationShares: Object.freeze(occupationShares),
     };
     return Object.freeze(summary);
   });
 
-  return Object.freeze({ peopleByCell: Object.freeze(peopleByCell) });
+  const regionPopulation = model.regions.map(() => 0);
+  const regionWellbeing = model.regions.map(() => 0);
+  let nationalPopulation = 0;
+  let nationalWellbeing = 0;
+  for (const cell of model.cells) {
+    if (cell.biome === 'water') continue;
+    const people = peopleByCell[cell.id];
+    regionPopulation[cell.region] += people.population;
+    regionWellbeing[cell.region] += people.averageWellbeing * people.population;
+    nationalPopulation += people.population;
+    nationalWellbeing += people.averageWellbeing * people.population;
+  }
+  const regionAverageWellbeing = regionWellbeing.map((total, region) =>
+    total / Math.max(regionPopulation[region], 1e-12));
+
+  return Object.freeze({
+    peopleByCell: Object.freeze(peopleByCell),
+    nationalAverageWellbeing: nationalWellbeing / Math.max(nationalPopulation, 1e-12),
+    regionAverageWellbeing: Object.freeze(regionAverageWellbeing),
+  });
 }
 
 /**
