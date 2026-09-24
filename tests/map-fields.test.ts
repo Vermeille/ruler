@@ -17,6 +17,8 @@ test('mapxel field registry owns mutable field mechanics', () => {
   assert.equal(constrainMapxelFieldValue('price', 99), 5);
   assert.equal(constrainMapxelFieldValue('happiness', -2), 0);
   assert.equal(constrainMapxelFieldValue('foodTraded', -2), -2);
+  assert.equal(validMapxelFieldValue('price', 0.39), false);
+  assert.equal(validMapxelFieldValue('foodTraded', -999), true);
   assert.equal(validMapxelFieldValue('businessHealth', 1.01), false);
 });
 
