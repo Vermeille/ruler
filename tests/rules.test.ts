@@ -5,9 +5,9 @@ import { step } from '../src/sim/engine';
 import { clamp } from '../src/sim/math';
 import { forecastBudget } from '../src/sim/policy';
 import {
-  consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
+  consumptionRule, environmentRule, eventRule, financingRule, fiscalRule, marketRule,
   migrationRule, populationAggregationRule, populationCrimeRule, populationDemographicsRule,
-  populationEmploymentRule, populationExperienceRule, productionRule, societyRule, taxationRule, tradeRule,
+  populationEmploymentRule, populationExperienceRule, productionRule, taxationRule, tradeRule,
 } from '../src/sim/rules';
 import type { Effect, Game, Mapxel, MutableField, Rule } from '../src/sim/types';
 
@@ -163,11 +163,11 @@ test('floating-point exhausted treasury never requests negative fiscal transfers
   assert.ok(proposed.every(effect => effect.amount >= 0));
 });
 
-test('society keeps world conditions env-to-env while resident approval changes through people and projection', () => {
+test('environment keeps world conditions env-to-env while resident approval changes through people and projection', () => {
   const base = tiny(), c = land(base);
   const changedWorld = (edit: (cell: Mapxel, game: Game) => void, field: MutableField) => {
     const variant = structuredClone(base); edit(variant.model.cells[c.id], variant);
-    return delta(effects(societyRule, variant), c.id, field) - delta(effects(societyRule, base), c.id, field);
+    return delta(effects(environmentRule, variant), c.id, field) - delta(effects(environmentRule, base), c.id, field);
   };
   assert.ok(changedWorld((cell) => { cell.foodSecurity = .2; }, 'health') < 0);
   assert.ok(changedWorld((_, g) => { g.model.policy.spending.health = 1; }, 'health') > 0);
@@ -175,7 +175,7 @@ test('society keeps world conditions env-to-env while resident approval changes 
 
   const residentApproval = (edit: (game: Game) => void) => {
     const variant = structuredClone(base); edit(variant);
-    return step(variant, [societyRule, populationExperienceRule, populationAggregationRule])
+    return step(variant, [environmentRule, populationExperienceRule, populationAggregationRule])
       .model.cells[c.id].approval;
   };
   const baselineApproval = residentApproval(() => {});
@@ -183,9 +183,9 @@ test('society keeps world conditions env-to-env while resident approval changes 
   assert.ok(residentApproval(g => { g.model.policy.laws.publicAssembly = false; }) < baselineApproval);
 
   const projected = new Set(['employment', 'happiness', 'approval', 'children', 'seniors']);
-  assert.ok(effects(societyRule, base).every(effect =>
+  assert.ok(effects(environmentRule, base).every(effect =>
     effect.kind !== 'delta' || !projected.has(effect.field)));
-  assert.ok(!effects(societyRule, base).some(effect =>
+  assert.ok(!effects(environmentRule, base).some(effect =>
     effect.kind === 'delta' && effect.field === 'crime'));
 });
 
@@ -236,15 +236,15 @@ test('industrial pollution reaches adjacent residents and Clean Air improves the
   const neighborId = base.model.neighbors[source.id][0];
   const industrial = structuredClone(base);
   Object.assign(industrial.model.cells[source.id], { agriculture: .05, manufacturing: .9, services: .04, sports: .01 });
-  assert.ok(delta(effects(societyRule, industrial), neighborId, 'pollution') >
-    delta(effects(societyRule, base), neighborId, 'pollution') + .001);
+  assert.ok(delta(effects(environmentRule, industrial), neighborId, 'pollution') >
+    delta(effects(environmentRule, base), neighborId, 'pollution') + .001);
   const controlled = structuredClone(industrial);
   controlled.model.policy.laws.cleanAir = true;
-  let untreated = step(industrial, [societyRule]);
-  let treated = step(controlled, [societyRule]);
+  let untreated = step(industrial, [environmentRule]);
+  let treated = step(controlled, [environmentRule]);
   assert.ok(treated.model.cells[neighborId].pollution < untreated.model.cells[neighborId].pollution);
-  untreated = step(untreated, [societyRule]);
-  treated = step(treated, [societyRule]);
+  untreated = step(untreated, [environmentRule]);
+  treated = step(treated, [environmentRule]);
   assert.ok(treated.model.cells[neighborId].health > untreated.model.cells[neighborId].health);
 });
 
