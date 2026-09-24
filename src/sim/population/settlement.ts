@@ -332,20 +332,3 @@ export function settlePopulation(
   });
   return outcomes;
 }
-
-/** Temporary bridge for aggregate population effects that still exist outside people-first rules. */
-export function reconcileLegacyPopulation(model: Model, cells?: Iterable<number>): void {
-  const cellIds = cells ? [...new Set(cells)].sort((a, b) => a - b) : model.cells.map(cell => cell.id);
-  for (const cellId of cellIds) {
-    const cell = model.cells[cellId];
-    if (!cell || cell.biome === 'water') continue;
-    const groups = model.populationGroups[cell.id];
-    const total = groups.reduce((sum, group) => sum + group.count, 0);
-    const difference = cell.population - total;
-    if (Math.abs(difference) <= 1e-9) continue;
-    if (!groups.length || total <= 0) throw new Error('Cannot reconcile empty population groups.');
-    const ratio = cell.population / total;
-    groups.forEach(group => { group.count *= ratio; });
-    groups[groups.length - 1].count += cell.population - groups.reduce((sum, group) => sum + group.count, 0);
-  }
-}
