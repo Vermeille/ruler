@@ -33,7 +33,7 @@ At the start of `step()`, after the working model advances to the month being si
 
 The cache is a read optimization, not state. It is not part of `Game` or `Model`, cannot be written by Effects, is not settled or persisted, and is discarded after the step. A later month rebuilds it from then-authoritative groups. The cache deliberately never falls back to mapxel human projections.
 
-The cache means **step-start population state**. A rule that genuinely needs human changes settled earlier in the same month must read the current authoritative groups instead of expecting the cache to refresh. This is why food-driven mortality, which runs after ordinary demographics, reads the post-demographic groups directly. Isolated test/devtool rule execution may derive a local cache from the supplied snapshot because no step lifecycle owns one there.
+The cache means **step-start population state**. A rule that genuinely needs human changes settled earlier in the same month must read the current authoritative groups instead of expecting the cache to refresh. This is why food-driven mortality, which runs after ordinary demographics, reads the post-demographic groups directly. Direct isolated rule calls in tests may derive a local cache from their supplied snapshot because no step lifecycle owns one. The developer causal lens instead rebuilds the real step-start cache from the game at the beginning of the traced month, tracks cache reads explicitly as people-summary inputs, and uses that same cache semantics for local perturbations.
 
 `traceStep()` builds the cache at the same point and reuses it for all traced phases, so developer instrumentation observes the same temporal semantics as production execution. Rule traces also retain each rule's declared direction.
 
@@ -90,7 +90,7 @@ Save version 4 persists mutable groups and their next ID. Archetype definitions 
 - Food spoils by 16% of post-consumption stock; materials have upkeep and 12% inventory depreciation. Stockpiles cannot accumulate without limit under ordinary production.
 - Higher reserves increase imports, creating a savings equilibrium. Neighbor migration is evaluated by groups every third month and each group's rate is capped at 0.9% per decision before movement-law restrictions; food scarcity can overwhelm an output gain.
 - A wage floor changes sector job viability only when it exceeds what local firms can pay from receipts after business tax and imported inputs. Firms change available work conditions; actual population groups gain or lose jobs through the `mapxel-to-people` employment rule.
-- Event families sample one candidate place per month rather than rolling a national catastrophe once per cell. Cooldowns keep events from dominating the model as map size increases. World consequences and human morale consequences share a random namespace so a split event produces one stochastic outcome, not two independent lotteries.
+- Event families sample one candidate place per month rather than rolling a national catastrophe once per cell. Cooldowns keep events from dominating the model as map size increases. World consequences and human morale consequences share a random namespace so a split event produces one stochastic outcome, not two independent lotteries. Event-linked population provenance resolves at phase commit rather than forcing a false same-phase rule dependency.
 - A regional drought adds local water stress, cutting subsequent farm yields by up to 60%; 35% of accumulated stress recovers each month. Repeated shocks can stack without changing permanent terrain fertility.
 - The default budget starts at 28% income tax, 18% business tax, and ₡1.50 of services per resident. At initial output, revenue equals spending. Starting reserves absorb transitional deficits.
 
@@ -133,11 +133,13 @@ When a mechanism represents something people do or experience, change population
 
 When a rule only needs aggregate information about the settled population at the start of the month, prefer the immutable `StepCache` over adding or reading another persistent mapxel mirror. The cache is fixed for the whole step by design; a rule that must observe human changes settled earlier in the same month must read authoritative groups.
 
-Give substantial changes `evidence`: title, mechanism, affected cells, measured input fields, and relevant policy keys. The rule-analysis tooling observes normal reads and effects, so new behavior should acquire causal input/output and downstream views without a behavior-specific devtools implementation.
+Give substantial changes `evidence`: title, mechanism, affected cells, measured input fields, and relevant policy keys. The rule-analysis tooling observes normal model reads, explicit step-cache summary reads, random inputs and Effects. It computes local sensitivities against the same summary values a rule actually consumes, and its influence graph treats population changes as feeding cache consumers only in later months. New behavior should acquire causal input/output and downstream views without a behavior-specific devtools implementation.
 
 ## Stories and causal honesty
 
 Significant changes create immutable cause records containing tick, rule, cells, magnitude, observations, and IDs of earlier recorded contributors. A cell/field provenance index connects later changes to recorded inputs. Same-phase effects only reference provenance from their shared input snapshot, preventing false within-phase causation. Event records state probabilities where relevant; an event is not attributed to policy as an inevitable outcome.
+
+Event-linked effects may register their provenance link before or after the matching event record within the same phase. Those links resolve at phase commit. This preserves the same-snapshot semantics of split event rules without imposing an `after` dependency solely for bookkeeping.
 
 The journal is **selective**, not a full structural causal model. Small updates may have no record. Parent links show contributing inputs and latest relevant interventions, not counterfactual proof or exhaustive attribution. News retains evidence IDs. Mandate chains traverse the existing graph rather than inventing relationships. Community quotes are explicitly fictional templates selected from measured conditions. All graphs and histories persist in exported saves; IndexedDB stores larger browser autosaves.
 
