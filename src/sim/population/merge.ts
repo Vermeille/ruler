@@ -64,46 +64,58 @@ function compareBuckets(a: Bucket, b: Bucket): number {
     || Number(a.employed) - Number(b.employed);
 }
 
-/** Keep the oldest ID as the deterministic representative of equivalent local histories. */
-export function mergePopulation(model: Model): number {
+function compactCell(model: Model, cell: number): number {
+  const groups = model.populationGroups[cell];
+  if (!groups || groups.length < 2) return 0;
+
+  const byStructure = new Map<string, Bucket>();
+  for (const group of groups) {
+    const key = `${group.archetype}:${group.lifeStage}:${group.occupation}:${group.employed}`;
+    let bucket = byStructure.get(key);
+    if (!bucket) {
+      bucket = {
+        archetype: group.archetype,
+        lifeStage: group.lifeStage,
+        occupation: group.occupation,
+        employed: group.employed,
+        groups: [],
+      };
+      byStructure.set(key, bucket);
+    }
+    bucket.groups.push(group);
+  }
+
   let merged = 0;
-  model.populationGroups.forEach((groups, cell) => {
-    if (groups.length < 2) return;
-
-    const byStructure = new Map<string, Bucket>();
-    for (const group of groups) {
-      const key = `${group.archetype}:${group.lifeStage}:${group.occupation}:${group.employed}`;
-      let bucket = byStructure.get(key);
-      if (!bucket) {
-        bucket = {
-          archetype: group.archetype,
-          lifeStage: group.lifeStage,
-          occupation: group.occupation,
-          employed: group.employed,
-          groups: [],
-        };
-        byStructure.set(key, bucket);
-      }
-      bucket.groups.push(group);
-    }
-
-    const compact: PopulationGroup[] = [];
-    const orderedBuckets = [...byStructure.values()].sort(compareBuckets);
-    for (const bucket of orderedBuckets) {
-      bucket.groups.sort((a, b) => a.id - b.id);
-      const representatives: PopulationGroup[] = [];
-      for (const group of bucket.groups) {
-        const match = representatives.find(existing => equivalent(existing, group));
-        if (match) {
-          combine(match, group);
-          merged += 1;
-        } else {
-          representatives.push(group);
-          compact.push(group);
-        }
+  const compact: PopulationGroup[] = [];
+  const orderedBuckets = [...byStructure.values()].sort(compareBuckets);
+  for (const bucket of orderedBuckets) {
+    bucket.groups.sort((a, b) => a.id - b.id);
+    const representatives: PopulationGroup[] = [];
+    for (const group of bucket.groups) {
+      const match = representatives.find(existing => equivalent(existing, group));
+      if (match) {
+        combine(match, group);
+        merged += 1;
+      } else {
+        representatives.push(group);
+        compact.push(group);
       }
     }
-    model.populationGroups[cell] = compact;
-  });
+  }
+  model.populationGroups[cell] = compact;
+  return merged;
+}
+
+/** Keep the oldest ID as the deterministic representative of equivalent local histories. */
+export function mergePopulation(model: Model, cells?: Iterable<number>): number {
+  let merged = 0;
+  if (cells) {
+    const ordered = [...new Set(cells)].sort((a, b) => a - b);
+    for (const cell of ordered) merged += compactCell(model, cell);
+    return merged;
+  }
+  for (let cell = 0; cell < model.populationGroups.length; cell += 1) {
+    merged += compactCell(model, cell);
+  }
   return merged;
 }
