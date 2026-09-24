@@ -52,7 +52,7 @@ export const retrainingRule: Rule = {
         if (group.lifeStage !== 'adult' || group.count < 1) continue;
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
         const score = (sector: Sector) => opportunityBySector[sector] * (0.4 + archetype.affinities[sector]);
-        let opportunity = SECTORS[0];
+        let opportunity: Sector = SECTORS[0];
         let bestScore = score(opportunity);
         for (let index = 1; index < SECTORS.length; index += 1) {
           const candidate = SECTORS[index];

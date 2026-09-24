@@ -581,6 +581,7 @@ export function commitEffects(
 
   let needsCompaction = false;
   for (const effect of populationEffects) {
+    if (effect.kind === 'population-delta' && effect.cause === 'death') continue;
     if (effect.kind !== 'population-state') {
       needsCompaction = true;
       break;

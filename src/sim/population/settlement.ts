@@ -156,7 +156,7 @@ function removeGroup(model: Model, cell: number, id: number): void {
   if (index >= 0) groups.splice(index, 1);
 }
 
-function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta'; cause: 'birth' }>, amount: number): number {
+function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta' }>, amount: number): number {
   const id = model.nextPopulationGroupId++;
   model.populationGroups[effect.cell].push({
     ...effect.state!,
