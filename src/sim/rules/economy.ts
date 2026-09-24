@@ -61,9 +61,10 @@ export const productionRule: Rule = {
 function tradeEvidence(
   seller: DeepReadonly<Mapxel>,
   buyer: DeepReadonly<Mapxel>,
+  buyerPopulation: number,
   amount: number,
 ): Evidence | undefined {
-  if (buyer.foodSecurity >= 0.92 || amount <= buyer.population * 0.1) {
+  if (buyer.foodSecurity >= 0.92 || amount <= buyerPopulation * 0.1) {
     return undefined;
   }
 
@@ -72,7 +73,6 @@ function tradeEvidence(
     detail: `${amount.toFixed(0)} units offered along a neighboring road. Settlement is limited by available stock and cash. Transport links determine how quickly shortages can be relieved.`,
     cells: [buyer.id, seller.id],
     reads: [
-      read(seller, 'agriculture', 'Supplier farm employment'),
       read(buyer, 'foodSecurity', 'Buyer food security'),
       read(buyer, 'infrastructure', 'Buyer transport access'),
     ],
@@ -84,24 +84,31 @@ export const tradeRule: Rule = {
   direction: 'mapxel-to-mapxel',
   phase: 'trade',
   description: 'Neighboring places exchange stocks and money according to inventories, prices, and transport capacity.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
 
     for (const a of model.cells.filter(isLand)) {
+      const aPopulation = peopleCache.peopleByCell[a.id].population;
+      if (aPopulation <= 0) continue;
       for (const neighborId of model.neighbors[a.id]) {
         if (neighborId <= a.id) continue;
 
         const b = model.cells[neighborId];
+        const bPopulation = peopleCache.peopleByCell[b.id].population;
+        if (bPopulation <= 0) continue;
         for (const resource of ['food', 'materials'] as const) {
-          const aStock = a[resource] / a.population;
-          const bStock = b[resource] / b.population;
+          const aStock = a[resource] / aPopulation;
+          const bStock = b[resource] / bPopulation;
           const [seller, buyer] = aStock > bStock ? [a, b] : [b, a];
+          const sellerPopulation = seller.id === a.id ? aPopulation : bPopulation;
+          const buyerPopulation = buyer.id === a.id ? aPopulation : bPopulation;
           const roadCapacity = 0.18 + 0.55 * Math.min(a.infrastructure, b.infrastructure);
           const equalizingAmount = Math.abs(aStock - bStock)
-            * a.population
-            * b.population
-            / (a.population + b.population);
-          const amount = Math.min(equalizingAmount * roadCapacity, seller.population * 0.85);
+            * aPopulation
+            * bPopulation
+            / (aPopulation + bPopulation);
+          const amount = Math.min(equalizingAmount * roadCapacity, sellerPopulation * 0.85);
 
           if (amount < 0.01) continue;
 
@@ -114,7 +121,7 @@ export const tradeRule: Rule = {
             amount,
             price,
             evidence: resource === 'food'
-              ? tradeEvidence(seller, buyer, amount)
+              ? tradeEvidence(seller, buyer, buyerPopulation, amount)
               : undefined,
           });
         }
@@ -145,9 +152,7 @@ export const consumptionRule: Rule = {
             detail: `Households could meet ${(security * 100).toFixed(0)}% of this month's food needs. Farms produced ${cell.foodMade.toFixed(0)} units; net neighboring trade was ${cell.foodTraded.toFixed(0)} units.`,
             cells: [cell.id],
             reads: [
-              read(cell, 'agriculture', 'Farm employment share'),
               read(cell, 'food', 'Available food'),
-              read(cell, 'population', 'Residents to feed'),
               read(cell, 'infrastructure', 'Transport access'),
             ],
           }
@@ -182,9 +187,13 @@ export const marketRule: Rule = {
   direction: 'mapxel-to-mapxel',
   phase: 'market',
   description: 'Scarcity changes prices; food, insecurity, and unaffordable payrolls squeeze local businesses.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
-      const supplyRatio = (cell.foodUsed + cell.food / 0.84) / cell.population;
+      const people = peopleCache.peopleByCell[cell.id];
+      const supplyRatio = people.population > 0
+        ? (cell.foodUsed + cell.food / 0.84) / people.population
+        : 2;
       const targetPrice = clamp(
         1
           + (1 - Math.min(2, supplyRatio)) * 1.3
@@ -199,13 +208,12 @@ export const marketRule: Rule = {
             cells: [cell.id],
             reads: [
               read(cell, 'foodSecurity', 'Last measured food security'),
-              read(cell, 'agriculture', 'Farm employment'),
               read(cell, 'food', 'Stock available'),
             ],
           }
         : undefined;
 
-      const serviceJobs = viableJobs(cell, model, 'services');
+      const serviceJobs = viableJobs(cell, model, 'services', people.averageHealth);
       const businessTarget = clamp(
         0.97
           - (1 - cell.foodSecurity) * 0.9
