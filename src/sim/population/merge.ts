@@ -1,5 +1,6 @@
 import {
   POPULATION_STATE_FIELD_NAMES,
+  populationStateDefinesCohort,
   populationStateMergeTolerance,
   readPopulationStateField,
   writePopulationStateField,
@@ -12,7 +13,8 @@ function equivalent(a: PopulationGroup, b: PopulationGroup): boolean {
     && a.occupation === b.occupation
     && a.employed === b.employed
     && POPULATION_STATE_FIELD_NAMES.every(field =>
-      Math.abs(readPopulationStateField(a, field) - readPopulationStateField(b, field))
+      !populationStateDefinesCohort(field)
+      || Math.abs(readPopulationStateField(a, field) - readPopulationStateField(b, field))
         <= populationStateMergeTolerance(field, a));
 }
 
