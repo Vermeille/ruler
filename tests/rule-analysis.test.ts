@@ -8,7 +8,7 @@ import { createGame } from '../src/sim/world';
 
 function analysisFor(ruleId: string) {
   let game = createGame('causal-lens-test', 18, 14, 48);
-  if (ruleId === 'society.migration') game = step(step(game));
+  if (ruleId === 'population.migration') game = step(step(game));
   const trace = traceStep(game);
   const phase = trace.phases.find(candidate => (
     candidate.rules.some(rule => rule.id === ruleId)
@@ -26,7 +26,7 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
   assert.ok(production.outputs.some(output => output.key === 'delta.food'));
   assert.ok(production.jacobian.length > 0);
 
-  const migration = analysisFor('society.migration').analysis;
+  const migration = analysisFor('population.migration').analysis;
   for (const input of [
     'population.wellbeing',
     'population.wealth',
@@ -47,11 +47,11 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
 });
 
 test('rule influence traces exact downstream reads and recurrent self-dependencies', () => {
-  const { game, phase } = analysisFor('society.migration');
+  const { game, phase } = analysisFor('population.migration');
   const influence = analyzeRuleInfluence(
     game,
     phase,
-    'society.migration',
+    'population.migration',
     'population.transfer',
   );
 
@@ -61,12 +61,12 @@ test('rule influence traces exact downstream reads and recurrent self-dependenci
   assert.ok(influence.consumers.some(consumer => (
     consumer.month === 'later month'
       && consumer.monthsAhead === 3
-      && consumer.ruleId === 'society.migration'
+      && consumer.ruleId === 'population.migration'
       && consumer.self
       && consumer.strength > 0
   )), 'migration population should feed the next quarterly decision');
   assert.ok(influence.consumers.some(consumer => (
-    consumer.ruleId !== 'society.migration' && consumer.strength > 0
+    consumer.ruleId !== 'population.migration' && consumer.strength > 0
   )), 'migration population should feed at least one other rule');
   assert.ok(influence.consumers.every(consumer => (
     consumer.paths.length > 0 && consumer.strength > 0 && consumer.strength <= 1
@@ -74,11 +74,11 @@ test('rule influence traces exact downstream reads and recurrent self-dependenci
 });
 
 test('input influence traces migration back through population experience', () => {
-  const { game, phase } = analysisFor('society.migration');
+  const { game, phase } = analysisFor('population.migration');
   const influence = analyzeRuleInputInfluence(
     game,
     phase,
-    'society.migration',
+    'population.migration',
     'population.wellbeing',
   );
 
