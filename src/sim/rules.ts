@@ -17,9 +17,6 @@ import { retrainingRule } from './population/retraining';
 import { financingRule, fiscalRule, taxationRule } from './rules/state';
 import type { Rule } from './types';
 
-/** Compatibility alias while callers migrate from the old aggregate society module name. */
-export const societyRule = environmentRule;
-
 export {
   consumptionRule,
   environmentRule,
