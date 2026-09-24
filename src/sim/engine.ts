@@ -22,6 +22,7 @@ import {
 
 type Resource = 'cash' | 'food' | 'materials' | 'population';
 type Proposal = { rule: string; effect: Effect };
+type ProvenanceWrites = Record<string, string>;
 
 type SettlementPlan = {
   demands: Map<string, number>;
@@ -425,28 +426,29 @@ function recordEffectCause(
   effect: Effect,
   actual: number,
   provenance: Record<string, string>,
+  writes: ProvenanceWrites,
 ): void {
   if (!('evidence' in effect) || !effect.evidence || Math.abs(actual) <= 1e-9) return;
 
   const causeId = recordCause(game, snapshot, rule, effect.evidence, Math.abs(actual), provenance);
 
   if (effect.kind === 'delta') {
-    game.provenance[`${effect.cell}:${effect.field}`] = causeId;
+    writes[`${effect.cell}:${effect.field}`] = causeId;
   }
 
   if (effect.kind === 'transfer' || effect.kind === 'trade') {
     for (const cell of [effect.from, effect.to]) {
       if (typeof cell === 'number') {
-        game.provenance[`${cell}:${effect.resource}`] = causeId;
+        writes[`${cell}:${effect.resource}`] = causeId;
       }
     }
   }
 }
 
 function linkEventDelta(
-  game: Game,
   effect: Extract<Effect, { kind: 'delta' }>,
   eventIds: Map<string, string>,
+  writes: ProvenanceWrites,
 ): void {
   if (!effect.eventKey) return;
 
@@ -455,7 +457,7 @@ function linkEventDelta(
     throw new Error(`Missing event ${effect.eventKey}`);
   }
 
-  game.provenance[`${effect.cell}:${effect.field}`] = eventId;
+  writes[`${effect.cell}:${effect.field}`] = eventId;
 }
 
 function applyAccumulatedDeltas(game: Game, deltas: Map<string, number>): void {
@@ -482,7 +484,10 @@ export function commitEffects(
   snapshot: DeepReadonly<Model>,
   proposals: Proposal[],
 ): void {
-  const provenance = { ...game.provenance };
+  // Causes produced inside a phase must only see provenance that existed at phase start.
+  // Buffer writes rather than cloning the entire provenance dictionary every phase.
+  const provenance = game.provenance;
+  const provenanceWrites: ProvenanceWrites = {};
   const eventIds = new Map<string, string>();
   const deltas = new Map<string, number>();
   const { demands } = planSettlement(snapshot, proposals);
@@ -524,11 +529,11 @@ export function commitEffects(
     }
 
     if (effect.kind !== 'event' && !effect.kind.startsWith('population-')) {
-      recordEffectCause(game, snapshot, rule, effect, actual, provenance);
+      recordEffectCause(game, snapshot, rule, effect, actual, provenance, provenanceWrites);
     }
 
     if (effect.kind === 'delta') {
-      linkEventDelta(game, effect, eventIds);
+      linkEventDelta(effect, eventIds, provenanceWrites);
     }
   }
 
@@ -540,14 +545,16 @@ export function commitEffects(
     if (!effect.evidence || actual <= 1e-9) return;
     const causeId = recordCause(game, snapshot, rule, effect.evidence, actual, provenance);
     const cells = effect.kind === 'population-transfer' ? [effect.from, effect.to] : [effect.cell];
-    for (const cell of cells) game.provenance[`${cell}:population`] = causeId;
+    for (const cell of cells) provenanceWrites[`${cell}:population`] = causeId;
     if (resultingGroup !== undefined) {
       const fields = effect.kind === 'population-state' ? Object.keys(effect.change)
         : effect.kind === 'population-transition' ? Object.keys(effect.transition)
           : ['count'];
-      for (const field of fields) game.provenance[`group:${resultingGroup}:${field}`] = causeId;
+      for (const field of fields) provenanceWrites[`group:${resultingGroup}:${field}`] = causeId;
     }
   });
+  Object.assign(game.provenance, provenanceWrites);
+
   const populationCountChanged = proposals.some(({ effect }) =>
     (effect.kind === 'delta' && effect.field === 'population')
     || (effect.kind === 'transfer' && effect.resource === 'population')
@@ -555,7 +562,7 @@ export function commitEffects(
     || effect.kind === 'population-delta');
   if (populationCountChanged) reconcileLegacyPopulation(game.model);
   if (populationEffects.some(effect => effect.kind !== 'population-state'
-    || effect.amount < (snapshot.populationGroups[effect.cell]?.find(group => group.id === effect.group)?.count ?? 0))) {
+    || effect.amount < (populationPlan.groups.get(effect.group)?.group.count ?? 0))) {
     mergePopulation(game.model);
   }
 }
