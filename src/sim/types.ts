@@ -86,9 +86,19 @@ export interface PopulationGroup {
   };
 }
 
-export type PopulationStateField = 'age' | 'education' | 'income' | 'wealth'
-  | 'health' | 'wellbeing' | 'approval'
-  | 'environmentalism' | 'civicLiberty' | 'traditionalism' | 'solidarity';
+type NumericPopulationGroupField = {
+  [K in keyof PopulationGroup]: PopulationGroup[K] extends number ? K : never
+}[keyof PopulationGroup];
+
+export type PopulationStateField =
+  | Exclude<NumericPopulationGroupField, 'id' | 'archetype' | 'count'>
+  | keyof PopulationGroup['attitudes'];
+
+type PrimitivePopulationTransitionField = {
+  [K in keyof PopulationGroup]: PopulationGroup[K] extends string | boolean | null ? K : never
+}[keyof PopulationGroup];
+
+export type PopulationTransitionField = PrimitivePopulationTransitionField;
 
 export interface Mapxel {
   id: number;
@@ -377,7 +387,7 @@ export type Effect =
       group: PopulationGroupId;
       cell: number;
       amount: number;
-      transition: Partial<Pick<PopulationGroup, 'lifeStage' | 'occupation' | 'employed'>>;
+      transition: Partial<Pick<PopulationGroup, PopulationTransitionField>>;
       evidence?: Evidence;
     }
   | {

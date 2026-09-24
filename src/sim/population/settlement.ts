@@ -1,6 +1,13 @@
-import { clamp } from '../math';
 import type { DeepReadonly, Effect, Model, PopulationGroup } from '../types';
 import { ARCHETYPE_COUNT } from './archetypes';
+import {
+  applyPopulationStateDelta,
+  POPULATION_STATE_FIELDS,
+  POPULATION_TRANSITION_FIELDS,
+  populationStateFieldSpec,
+  populationTransitionFieldSpec,
+  validPopulationStateValue,
+} from './fields';
 
 type PopulationEffect = Extract<Effect, { kind: 'population-transfer' | 'population-transition' | 'population-state' | 'population-delta' }>;
 type GroupEffect = Exclude<PopulationEffect, { kind: 'population-delta' }>
@@ -41,23 +48,18 @@ function validatePopulationEffect(
     let count = 0;
     for (const key in effect.transition) {
       count += 1;
+      const spec = populationTransitionFieldSpec(key);
       const value = effect.transition[key as keyof typeof effect.transition];
-      if (!['lifeStage', 'occupation', 'employed'].includes(key)
-        || (key === 'lifeStage' && !['child', 'adult', 'senior'].includes(String(value)))
-        || (key === 'occupation' && ![null, 'agriculture', 'manufacturing', 'services', 'sports'].includes(value as string | null))
-        || (key === 'employed' && typeof value !== 'boolean')) {
-        throw new Error('Invalid population transition.');
-      }
+      if (!spec || !spec.valid(value)) throw new Error('Invalid population transition.');
     }
     if (count === 0) throw new Error('Invalid population transition.');
   } else if (effect.kind === 'population-state' && strictShape) {
     let count = 0;
     for (const key in effect.change) {
       count += 1;
+      const spec = populationStateFieldSpec(key);
       const value = effect.change[key as keyof typeof effect.change];
-      if (!['age', 'education', 'income', 'wealth', 'health', 'wellbeing', 'approval',
-        'environmentalism', 'civicLiberty', 'traditionalism', 'solidarity'].includes(key)
-        || !Number.isFinite(value)) {
+      if (!spec || typeof value !== 'number' || !Number.isFinite(value)) {
         throw new Error('Invalid population state change.');
       }
     }
@@ -78,14 +80,17 @@ function validatePopulationEffect(
 
 function validateGroupState(group: Omit<PopulationGroup, 'id' | 'archetype' | 'count'>): void {
   if (!group || !group.attitudes) throw new Error('Invalid initial population state.');
-  const numbers = [group.age, group.education, group.income, group.wealth, group.health, group.wellbeing,
-    group.approval, ...Object.values(group.attitudes)];
-  if (numbers.some(value => !Number.isFinite(value) || value < 0)
-    || [group.education, group.health, group.wellbeing, group.approval,
-      ...Object.values(group.attitudes)].some(value => value > 1)
-    || !['child', 'adult', 'senior'].includes(group.lifeStage)
-    || (group.occupation !== null && !['agriculture', 'manufacturing', 'services', 'sports'].includes(group.occupation))
-    || typeof group.employed !== 'boolean') throw new Error('Invalid initial population state.');
+  const raw = group as unknown as Record<string, unknown>;
+  const attitudes = group.attitudes as unknown as Record<string, unknown>;
+  for (const [field, spec] of Object.entries(POPULATION_STATE_FIELDS)) {
+    const value = spec.storage === 'attitudes' ? attitudes[field] : raw[field];
+    if (!validPopulationStateValue(field as keyof typeof POPULATION_STATE_FIELDS, value)) {
+      throw new Error('Invalid initial population state.');
+    }
+  }
+  for (const [field, spec] of Object.entries(POPULATION_TRANSITION_FIELDS)) {
+    if (!spec.valid(raw[field])) throw new Error('Invalid initial population state.');
+  }
 }
 
 export interface PopulationPlan {
@@ -134,16 +139,7 @@ function applyGroupChange(target: PopulationGroup, source: DeepReadonly<Populati
   for (const field in effect.change) {
     const delta = effect.change[field as keyof typeof effect.change];
     if (delta === undefined) continue;
-    if (field === 'environmentalism' || field === 'civicLiberty'
-      || field === 'traditionalism' || field === 'solidarity') {
-      const key = field as keyof PopulationGroup['attitudes'];
-      target.attitudes[key] = clamp(source.attitudes[key] + delta);
-      continue;
-    }
-    const key = field as keyof Pick<PopulationGroup, 'age' | 'education' | 'income' | 'wealth' | 'health' | 'wellbeing' | 'approval'>;
-    const value = source[key] + delta;
-    const bounded = field === 'education' || field === 'health' || field === 'wellbeing' || field === 'approval';
-    target[key] = bounded ? clamp(value) : Math.max(0, value);
+    applyPopulationStateDelta(target, source, field as keyof typeof POPULATION_STATE_FIELDS, delta);
   }
 }
 
