@@ -46,6 +46,32 @@ test('step cache is derived from population groups rather than mapxel social pro
   assert.notEqual(summary.employmentRate, cell.employment);
 });
 
+test('default causal rules ignore persisted human compatibility projections', () => {
+  const baseline = createGame('step-cache-causal-authority', 12, 12, 48);
+  const poisoned = structuredClone(baseline);
+
+  for (const cell of poisoned.model.cells) {
+    if (cell.biome === 'water') continue;
+    cell.employment = 1 - cell.employment;
+    cell.happiness = 1 - cell.happiness;
+    cell.approval = 1 - cell.approval;
+    cell.children = 1 - cell.children;
+    cell.seniors = 1 - cell.seniors;
+    cell.agriculture = 0;
+    cell.manufacturing = 0;
+    cell.services = 0;
+    cell.sports = 1;
+  }
+
+  const ordinary = step(baseline);
+  const fromPoisonedMirrors = step(poisoned);
+  assert.deepEqual(
+    fromPoisonedMirrors.model,
+    ordinary.model,
+    'changing compatibility projections must not alter causal simulation results',
+  );
+});
+
 test('step cache is deeply frozen and is not persisted as model state', () => {
   const game = createGame('step-cache-frozen', 12, 12, 48);
   const cache = buildStepCache(game.model);
