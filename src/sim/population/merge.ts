@@ -1,51 +1,31 @@
+import {
+  POPULATION_STATE_FIELD_NAMES,
+  populationStateMergeTolerance,
+  readPopulationStateField,
+  writePopulationStateField,
+} from './fields';
 import type { Model, PopulationGroup } from '../types';
-
-const TOLERANCE = {
-  childAge: 2.5,
-  adultAge: 1,
-  seniorAge: 2,
-  education: 0.03,
-  income: 0.75,
-  wealth: 2,
-  health: 0.03,
-  wellbeing: 0.04,
-  approval: 0.04,
-  attitude: 0.03,
-} as const;
 
 function equivalent(a: PopulationGroup, b: PopulationGroup): boolean {
   return a.archetype === b.archetype
     && a.lifeStage === b.lifeStage
     && a.occupation === b.occupation
     && a.employed === b.employed
-    && Math.abs(a.age - b.age) <= (a.lifeStage === 'child' ? TOLERANCE.childAge
-      : a.lifeStage === 'senior' ? TOLERANCE.seniorAge : TOLERANCE.adultAge)
-    && Math.abs(a.education - b.education) <= TOLERANCE.education
-    && Math.abs(a.income - b.income) <= TOLERANCE.income
-    && Math.abs(a.wealth - b.wealth) <= TOLERANCE.wealth
-    && Math.abs(a.health - b.health) <= TOLERANCE.health
-    && Math.abs(a.wellbeing - b.wellbeing) <= TOLERANCE.wellbeing
-    && Math.abs(a.approval - b.approval) <= TOLERANCE.approval
-    && Math.abs(a.attitudes.environmentalism - b.attitudes.environmentalism) <= TOLERANCE.attitude
-    && Math.abs(a.attitudes.civicLiberty - b.attitudes.civicLiberty) <= TOLERANCE.attitude
-    && Math.abs(a.attitudes.traditionalism - b.attitudes.traditionalism) <= TOLERANCE.attitude
-    && Math.abs(a.attitudes.solidarity - b.attitudes.solidarity) <= TOLERANCE.attitude;
+    && POPULATION_STATE_FIELD_NAMES.every(field =>
+      Math.abs(readPopulationStateField(a, field) - readPopulationStateField(b, field))
+        <= populationStateMergeTolerance(field, a));
 }
 
 function combine(target: PopulationGroup, source: PopulationGroup): void {
   const count = target.count + source.count;
   const weighted = (a: number, b: number) => (a * target.count + b * source.count) / count;
-  target.age = weighted(target.age, source.age);
-  target.education = weighted(target.education, source.education);
-  target.income = weighted(target.income, source.income);
-  target.wealth = weighted(target.wealth, source.wealth);
-  target.health = weighted(target.health, source.health);
-  target.wellbeing = weighted(target.wellbeing, source.wellbeing);
-  target.approval = weighted(target.approval, source.approval);
-  target.attitudes.environmentalism = weighted(target.attitudes.environmentalism, source.attitudes.environmentalism);
-  target.attitudes.civicLiberty = weighted(target.attitudes.civicLiberty, source.attitudes.civicLiberty);
-  target.attitudes.traditionalism = weighted(target.attitudes.traditionalism, source.attitudes.traditionalism);
-  target.attitudes.solidarity = weighted(target.attitudes.solidarity, source.attitudes.solidarity);
+  for (const field of POPULATION_STATE_FIELD_NAMES) {
+    writePopulationStateField(
+      target,
+      field,
+      weighted(readPopulationStateField(target, field), readPopulationStateField(source, field)),
+    );
+  }
   target.count = count;
 }
 
