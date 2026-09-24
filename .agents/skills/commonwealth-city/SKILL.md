@@ -7,6 +7,8 @@ description: Orient to and work on the Commonwealth project, a people-first poli
 
 Use this skill for work in this repository's fictional country, economy, and society simulation. For unfamiliar subsystems or broad design work, first read [the project orientation](references/project-orientation.md). Treat checked-out source and tests as authoritative when prose differs, and verify current implementation before making numerical or architectural claims.
 
+When a task changes or reconciles behavior specification lines under `specs/`, also use the `commonwealth-behaviors` skill. Behavior specs are the readable product contract for implemented mechanics; their `[I]`, `[E]`, and `[X]` markers define whether code should be left alone, adapted, or have behavior removed.
+
 ## The core model
 
 The central causal loop is:
