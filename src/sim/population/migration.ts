@@ -182,6 +182,12 @@ function planMigration(
   return planned;
 }
 
+// [I] MIGRATION-NEEDS1
+// [I] MIGRATION-MOOD1
+// [I] MIGRATION-LOCAL1
+// [I] MIGRATION-MEANS1
+// [I] MIGRATION-ROOTS1
+// [I] MIGRATION-FREEDOM1
 export const migrationRule: Rule = {
   id: 'population.migration',
   direction: 'mapxel-to-people',
@@ -202,6 +208,7 @@ export const migrationRule: Rule = {
 };
 
 /** Moving residents carry a proportional share of pooled private reserves to the destination. */
+// [I] MIGRATION-CASH1
 export const migrationCashRule: Rule = {
   id: 'population.migration-cash',
   direction: 'people-to-mapxel',
