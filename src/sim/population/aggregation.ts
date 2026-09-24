@@ -9,28 +9,36 @@ import {
   type Sector,
 } from '../types';
 
+type ProjectionParentKind = 'occupation' | 'employed' | 'wellbeing' | 'approval' | 'lifeStage';
+type ProjectionParentCache = Partial<Record<ProjectionParentKind, string[]>>;
+
+const PROJECTED_FIELDS: readonly MutableField[] = [
+  'employment', 'happiness', 'approval', 'children', 'seniors',
+  'agriculture', 'manufacturing', 'services', 'sports',
+];
+
+function parentKind(field: MutableField): ProjectionParentKind | undefined {
+  if (SECTORS.includes(field as Sector)) return 'occupation';
+  if (field === 'employment') return 'employed';
+  if (field === 'happiness') return 'wellbeing';
+  if (field === 'approval') return 'approval';
+  if (field === 'children' || field === 'seniors') return 'lifeStage';
+  return undefined;
+}
+
 function projectionParents(
   model: DeepReadonly<Model>,
   cell: number,
   field: MutableField,
+  cache: ProjectionParentCache,
 ): string[] {
-  const groups = model.populationGroups[cell];
-  if (SECTORS.includes(field as Sector)) {
-    return groups.map(group => `group:${group.id}:occupation`);
-  }
-  if (field === 'employment') {
-    return groups.map(group => `group:${group.id}:employed`);
-  }
-  if (field === 'happiness') {
-    return groups.map(group => `group:${group.id}:wellbeing`);
-  }
-  if (field === 'approval') {
-    return groups.map(group => `group:${group.id}:approval`);
-  }
-  if (field === 'children' || field === 'seniors') {
-    return groups.map(group => `group:${group.id}:lifeStage`);
-  }
-  return [];
+  const kind = parentKind(field);
+  if (!kind) return [];
+  const cached = cache[kind];
+  if (cached) return cached;
+  const parents = model.populationGroups[cell].map(group => `group:${group.id}:${kind}`);
+  cache[kind] = parents;
+  return parents;
 }
 
 function projectionEvidence(
@@ -39,6 +47,7 @@ function projectionEvidence(
   field: MutableField,
   before: number,
   after: number,
+  parents: ProjectionParentCache,
 ): Evidence | undefined {
   const amount = Math.abs(after - before);
   const threshold = SECTORS.includes(field as Sector)
@@ -58,7 +67,7 @@ function projectionEvidence(
     title: `${place.name}: ${label} follows residents`,
     detail: `${label} moves from ${(before * 100).toFixed(1)}% to ${(after * 100).toFixed(1)}% because this mapxel now contains a different mix of resident states. The mapxel field is a projection of people, not an independent social variable.`,
     cells: [cell],
-    parents: projectionParents(model, cell, field),
+    parents: projectionParents(model, cell, field, parents),
   };
 }
 
@@ -123,20 +132,22 @@ export const populationAggregationRule: Rule = {
   phase: 'events',
   description: 'Project settled population groups into mapxel employment, wellbeing, approval, demographics, and occupational shares.',
   run({ model }) {
-    return model.cells.flatMap(cell => {
-      if (cell.biome === 'water') return [];
+    const effects: Effect[] = [];
+    for (const cell of model.cells) {
+      if (cell.biome === 'water') continue;
       const target = projectedFields(model, cell.id);
-      return Object.entries(target).map(([rawField, rawValue]) => {
-        const field = rawField as MutableField;
-        const value = Number(rawValue);
-        return {
-          kind: 'delta' as const,
+      const parents: ProjectionParentCache = {};
+      for (const field of PROJECTED_FIELDS) {
+        const value = target[field as keyof typeof target];
+        effects.push({
+          kind: 'delta',
           cell: cell.id,
           field,
           amount: value - cell[field],
-          evidence: projectionEvidence(model, cell.id, field, cell[field], value),
-        } satisfies Effect;
-      });
-    });
+          evidence: projectionEvidence(model, cell.id, field, cell[field], value, parents),
+        });
+      }
+    }
+    return effects;
   },
 };
