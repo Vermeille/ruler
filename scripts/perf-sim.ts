@@ -53,6 +53,8 @@ function reportGroupSizes(): void {
   console.log('GROUP_SIZES', JSON.stringify({
     tick: game.model.tick,
     count: sizes.length,
+    nextGroupId: game.model.nextPopulationGroupId,
+    idDensity: sizes.length / Math.max(1, game.model.nextPopulationGroupId - 1),
     min: sizes[0],
     q10: q(.1),
     q25: q(.25),
@@ -96,7 +98,11 @@ function reportMigrationAmounts(): void {
   }));
 }
 
-console.log('PERF_MODEL', JSON.stringify({ cells: game.model.cells.length, groups: groupCount() }));
+console.log('PERF_MODEL', JSON.stringify({
+  cells: game.model.cells.length,
+  groups: groupCount(),
+  nextGroupId: game.model.nextPopulationGroupId,
+}));
 reportGroupSizes();
 bench('structuredClone(model)', () => { structuredClone(game.model); }, 20);
 bench('typedClone(model)', () => { cloneModel(game.model); }, 20);
@@ -107,7 +113,13 @@ for (let month = 1; month <= 12; month += 1) {
   const start = performance.now();
   game = step(game, defaultRules);
   const elapsed = performance.now() - start;
-  console.log('PERF_STEP', JSON.stringify({ month, elapsedMs: elapsed, groups: groupCount(), causes: game.causes.length }));
+  console.log('PERF_STEP', JSON.stringify({
+    month,
+    elapsedMs: elapsed,
+    groups: groupCount(),
+    nextGroupId: game.model.nextPopulationGroupId,
+    causes: game.causes.length,
+  }));
   if (month % 3 === 0) {
     reportGroupSizes();
     reportMigrationAmounts();
