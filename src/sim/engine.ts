@@ -636,10 +636,36 @@ export function assertModel(model: DeepReadonly<Model>): void {
   }
 }
 
+function cloneModel(model: Model): Model {
+  return {
+    ...model,
+    cells: model.cells.map(cell => ({ ...cell })),
+    populationGroups: model.populationGroups.map(groups => groups.map(group => ({
+      ...group,
+      attitudes: { ...group.attitudes },
+    }))),
+    neighbors: model.neighbors.map(neighbors => [...neighbors]),
+    regions: [...model.regions],
+    policy: {
+      ...model.policy,
+      spending: { ...model.policy.spending },
+      subsidies: { ...model.policy.subsidies },
+      laws: { ...model.policy.laws },
+    },
+    localSubsidies: model.localSubsidies.map(subsidy => ({
+      ...subsidy,
+      scope: subsidy.scope.kind === 'cells'
+        ? { ...subsidy.scope, ids: [...subsidy.scope.ids] }
+        : { ...subsidy.scope },
+    })),
+    budget: { ...model.budget },
+  };
+}
+
 function cloneGameForStep(game: Game): Game {
   return {
     ...game,
-    model: structuredClone(game.model),
+    model: cloneModel(game.model),
     causes: [...game.causes],
     articles: [...game.articles],
     history: [...game.history],
