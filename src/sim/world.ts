@@ -291,7 +291,7 @@ export function createGame(
   const initial = summarize(model);
 
   return {
-    version: 4,
+    version: 5,
     model,
     initial,
     history: [{ tick: 0, summary: initial }],
