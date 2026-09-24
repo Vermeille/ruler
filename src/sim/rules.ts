@@ -1,5 +1,4 @@
 import {
-  adaptationRule,
   consumptionRule,
   marketRule,
   productionRule,
@@ -16,7 +15,6 @@ import { financingRule, fiscalRule, taxationRule } from './rules/state';
 import type { Rule } from './types';
 
 export {
-  adaptationRule,
   consumptionRule,
   eventRule,
   financingRule,
