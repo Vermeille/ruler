@@ -26,6 +26,7 @@ function validatePopulationEffect(
   snapshot: DeepReadonly<Model>,
   effect: PopulationEffect,
   groups: Map<number, GroupLocation>,
+  strictShape: boolean,
 ): void {
   if (!Number.isFinite(effect.amount) || effect.amount < 0) throw new Error('Invalid population effect amount.');
   if (isGroupEffect(effect)) {
@@ -36,7 +37,7 @@ function validatePopulationEffect(
     if (effect.from === effect.to || snapshot.cells[effect.to]?.biome === 'water' || !snapshot.cells[effect.to]) {
       throw new Error('Invalid population destination.');
     }
-  } else if (effect.kind === 'population-transition') {
+  } else if (effect.kind === 'population-transition' && strictShape) {
     let count = 0;
     for (const key in effect.transition) {
       count += 1;
@@ -49,7 +50,7 @@ function validatePopulationEffect(
       }
     }
     if (count === 0) throw new Error('Invalid population transition.');
-  } else if (effect.kind === 'population-state') {
+  } else if (effect.kind === 'population-state' && strictShape) {
     let count = 0;
     for (const key in effect.change) {
       count += 1;
@@ -106,8 +107,9 @@ export function planPopulation(snapshot: DeepReadonly<Model>, effects: readonly 
   snapshot.populationGroups.forEach((cellGroups, cell) => {
     cellGroups.forEach((group, index) => groups.set(group.id, { cell, index, group }));
   });
+  const strictShape = Object.isFrozen(snapshot);
   for (const effect of effects) {
-    validatePopulationEffect(snapshot, effect, groups);
+    validatePopulationEffect(snapshot, effect, groups, strictShape);
     if (!isGroupEffect(effect)) continue;
     const prior = demands.get(effect.group);
     if (prior !== undefined) independent = false;
@@ -132,15 +134,16 @@ function applyGroupChange(target: PopulationGroup, source: DeepReadonly<Populati
   for (const field in effect.change) {
     const delta = effect.change[field as keyof typeof effect.change];
     if (delta === undefined) continue;
-    if (field in source.attitudes) {
+    if (field === 'environmentalism' || field === 'civicLiberty'
+      || field === 'traditionalism' || field === 'solidarity') {
       const key = field as keyof PopulationGroup['attitudes'];
       target.attitudes[key] = clamp(source.attitudes[key] + delta);
       continue;
     }
     const key = field as keyof Pick<PopulationGroup, 'age' | 'education' | 'income' | 'wealth' | 'health' | 'wellbeing' | 'approval'>;
     const value = source[key] + delta;
-    target[key] = ['education', 'health', 'wellbeing', 'approval'].includes(field)
-      ? clamp(value) : Math.max(0, value);
+    const bounded = field === 'education' || field === 'health' || field === 'wellbeing' || field === 'approval';
+    target[key] = bounded ? clamp(value) : Math.max(0, value);
   }
 }
 
