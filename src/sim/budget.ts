@@ -12,6 +12,10 @@ export type StepBudgetForecast = {
  * Fiscal execution uses the same step-start people summary as every other rule.
  * This deliberately avoids the persisted human compatibility projections on Mapxel.
  */
+// [I] FISCAL-TAX1
+// [I] FISCAL-INTEREST1
+// [I] FISCAL-FUNDING1
+// [I] FISCAL-SPENDING1
 export function forecastBudgetForStep(
   model: DeepReadonly<Model>,
   cache: DeepReadonly<StepCache>,
@@ -44,6 +48,7 @@ export function forecastBudgetForStep(
   };
 }
 
+// [I] FISCAL-BORROW1
 export function debtLimitForStep(cache: DeepReadonly<StepCache>): number {
   return cache.peopleByCell.reduce((sum, people) => sum + people.population, 0) * 30;
 }
