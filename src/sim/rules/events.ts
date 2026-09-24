@@ -191,7 +191,6 @@ export const populationEventExperienceRule: Rule = {
   direction: 'mapxel-to-people',
   randomNamespace: 'stories.events',
   phase: 'events',
-  after: ['stories.events'],
   description: 'Crime and cultural events change the wellbeing of the population groups that experience them.',
   run({ model, random, lastEvents }) {
     const outcomes = eventOutcomes(model, random, lastEvents);
