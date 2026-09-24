@@ -64,7 +64,7 @@ test('simulation workbench explains rules visually and preserves the forensic in
   // inventing inputs and outputs for a rule that returned before reading lived conditions.
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
-  await expect(rulePicker.getByRole('button', { name: /population.migration/ })).toHaveClass(/active/);
+  await expect(rulePicker.getByRole('button', { name: /^population\.migration(?:\s|$)/ })).toHaveClass(/active/);
   await expect(lens).toContainText('population.migration');
   const sampling = lens.locator('.analysis-sampling');
   await expect(sampling.locator('strong')).toHaveText('0');
@@ -95,7 +95,7 @@ test('simulation workbench explains rules visually and preserves the forensic in
 
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
-  await expect(rulePicker.getByRole('button', { name: /population.migration/ })).toHaveClass(/active/);
+  await expect(rulePicker.getByRole('button', { name: /^population\.migration(?:\s|$)/ })).toHaveClass(/active/);
   await expect(lens).toContainText('population.migration');
   await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Wealth' })).toBeVisible();
   await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Employed' })).toBeVisible();
