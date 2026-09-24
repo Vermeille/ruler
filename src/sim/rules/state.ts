@@ -88,7 +88,10 @@ export const fiscalRule: Rule = {
     const funding = forecast.spending > 0
       ? clamp(availableForServices / forecast.spending)
       : 1;
-    const reserve = peopleCache.peopleByCell.reduce((total, people) => total + people.population, 0) * 6;
+    const reserve = model.cells.reduce(
+      (total, cell) => total + peopleCache.peopleByCell[cell.id].population,
+      0,
+    ) * 6;
     const surplus = Math.max(0, availableForServices - forecast.spending * funding - reserve);
     const principalRepaid = Math.min(model.debt, surplus);
     const effects: Effect[] = [
