@@ -114,11 +114,11 @@ test('a sports subsidy reallocates real workers and creates traceable downstream
     .find(causes => [
       'government',
       'population.retraining',
-      'population.aggregate',
+      'economy.production',
       'economy.households',
       'economy.businesses',
     ].every(rule => causes.some(c => c.rule === rule)));
-  assert.ok(chain, 'Expected observed chain from subsidy to people changing jobs, local food shortage, and struggling businesses');
+  assert.ok(chain, 'Expected observed chain from subsidy to worker retraining, reduced food production, local shortage, and struggling businesses');
   assert.ok(mandateReport(g).chains.length > 0, 'Mandate should retain policy consequences');
   const seen = new Set<string>(); for (const c of g.causes) { assert.ok(c.parents.every(id => seen.has(id))); seen.add(c.id); }
 });
