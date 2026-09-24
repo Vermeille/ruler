@@ -282,12 +282,13 @@ function classifyCacheRead(
   const field = match
     ? (match[3] ? `${match[2]}.${match[3]}` : match[2])
     : path;
+  const structural = path.endsWith('.length');
   return {
-    groupKey: `people.${field}`,
-    groupLabel: `People · ${words(field)}`,
-    category: 'people',
+    groupKey: structural ? `structure.${path.split('.')[0]}` : `people.${field}`,
+    groupLabel: structural ? `${words(path.split('.')[0])} (structure)` : `People · ${words(field)}`,
+    category: structural ? 'structure' : 'people',
     cell,
-    perturbable: typeof value === 'number' || typeof value === 'boolean',
+    perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
     example: cell === undefined
       ? `step cache · ${field}`
       : `${model.cells[cell]?.name ?? `cell ${cell}`} · people ${field}`,
