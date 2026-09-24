@@ -1,10 +1,13 @@
 import { clamp } from '../math';
 import { SECTORS, type DeepReadonly, type PopulationGroup, type PopulationStateField, type PopulationTransitionField } from '../types';
 
+type MergeTolerance = number | Readonly<Record<PopulationGroup['lifeStage'], number>>;
+
 export type PopulationStateFieldSpec = {
   storage: 'group' | 'attitudes';
   min?: number;
   max?: number;
+  mergeTolerance: MergeTolerance;
 };
 
 export type PopulationTransitionFieldSpec = {
@@ -13,22 +16,29 @@ export type PopulationTransitionFieldSpec = {
 
 /**
  * Mechanical semantics for mutable population state. Behavior rules should only decide what
- * changes; settlement reads storage and bounds from this registry. The exhaustive `satisfies`
- * clauses intentionally make adding state to PopulationGroup produce one obvious compiler task.
+ * changes; settlement, validation, and compaction all read their mechanics from this registry.
+ * The exhaustive `satisfies` clauses intentionally make adding state to PopulationGroup produce
+ * one obvious compiler task rather than several synchronized field lists.
  */
 export const POPULATION_STATE_FIELDS = {
-  age: { storage: 'group', min: 0 },
-  education: { storage: 'group', min: 0, max: 1 },
-  income: { storage: 'group', min: 0 },
-  wealth: { storage: 'group', min: 0 },
-  health: { storage: 'group', min: 0, max: 1 },
-  wellbeing: { storage: 'group', min: 0, max: 1 },
-  approval: { storage: 'group', min: 0, max: 1 },
-  environmentalism: { storage: 'attitudes', min: 0, max: 1 },
-  civicLiberty: { storage: 'attitudes', min: 0, max: 1 },
-  traditionalism: { storage: 'attitudes', min: 0, max: 1 },
-  solidarity: { storage: 'attitudes', min: 0, max: 1 },
+  age: {
+    storage: 'group',
+    min: 0,
+    mergeTolerance: { child: 2.5, adult: 1, senior: 2 },
+  },
+  education: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.03 },
+  income: { storage: 'group', min: 0, mergeTolerance: 0.75 },
+  wealth: { storage: 'group', min: 0, mergeTolerance: 2 },
+  health: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.03 },
+  wellbeing: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.04 },
+  approval: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.04 },
+  environmentalism: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
+  civicLiberty: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
+  traditionalism: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
+  solidarity: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
 } as const satisfies Record<PopulationStateField, PopulationStateFieldSpec>;
+
+export const POPULATION_STATE_FIELD_NAMES = Object.keys(POPULATION_STATE_FIELDS) as PopulationStateField[];
 
 export const POPULATION_TRANSITION_FIELDS = {
   lifeStage: { valid: (value: unknown) => value === 'child' || value === 'adult' || value === 'senior' },
@@ -55,6 +65,27 @@ export function readPopulationStateField(
     : Number(group[field as keyof PopulationGroup]);
 }
 
+export function writePopulationStateField(
+  group: PopulationGroup,
+  field: PopulationStateField,
+  value: number,
+): void {
+  const spec: PopulationStateFieldSpec = POPULATION_STATE_FIELDS[field];
+  if (spec.storage === 'attitudes') {
+    group.attitudes[field as keyof PopulationGroup['attitudes']] = value;
+    return;
+  }
+  (group as unknown as Record<string, unknown>)[field] = value;
+}
+
+export function populationStateMergeTolerance(
+  field: PopulationStateField,
+  group: DeepReadonly<PopulationGroup>,
+): number {
+  const tolerance: MergeTolerance = POPULATION_STATE_FIELDS[field].mergeTolerance;
+  return typeof tolerance === 'number' ? tolerance : tolerance[group.lifeStage];
+}
+
 function bounded(value: number, spec: PopulationStateFieldSpec): number {
   if (spec.min !== undefined && spec.max !== undefined) return clamp(value, spec.min, spec.max);
   if (spec.min !== undefined) return Math.max(spec.min, value);
@@ -69,18 +100,17 @@ export function applyPopulationStateDelta(
   delta: number,
 ): void {
   const spec: PopulationStateFieldSpec = POPULATION_STATE_FIELDS[field];
-  const value = bounded(readPopulationStateField(source, field) + delta, spec);
-  if (spec.storage === 'attitudes') {
-    target.attitudes[field as keyof PopulationGroup['attitudes']] = value;
-    return;
-  }
-  (target as unknown as Record<string, unknown>)[field] = value;
+  writePopulationStateField(target, field, bounded(readPopulationStateField(source, field) + delta, spec));
 }
 
-export function validPopulationStateValue(field: PopulationStateField, value: unknown): boolean {
+export function validPopulationStateValue(
+  field: PopulationStateField,
+  value: unknown,
+  epsilon = 0,
+): boolean {
   const spec: PopulationStateFieldSpec = POPULATION_STATE_FIELDS[field];
   if (typeof value !== 'number' || !Number.isFinite(value)) return false;
-  if (spec.min !== undefined && value < spec.min) return false;
-  if (spec.max !== undefined && value > spec.max) return false;
+  if (spec.min !== undefined && value < spec.min - epsilon) return false;
+  if (spec.max !== undefined && value > spec.max + epsilon) return false;
   return true;
 }
