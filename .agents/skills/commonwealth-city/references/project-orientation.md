@@ -1,142 +1,435 @@
-# Commonwealth City: 10-minute orientation
+# Commonwealth: project orientation
 
 ## The one-minute version
 
-Commonwealth is a browser-playable political and local-economy simulator written in TypeScript. The player governs a seeded, procedurally generated country for a finite mandate (48 months by default). Each month, they can change national taxes and services, direct sector subsidies locally or nationally, invest in local conditions, or enact laws. Then they advance time and observe how those choices interact with food, jobs, business health, public finances, migration, approval, and chance events.
+Commonwealth is a browser-playable policy, economy, and society simulator written in TypeScript and Vue. The player governs a procedurally generated country for a finite mandate, 48 months by default. They adjust taxes and services, subsidize sectors nationally or locally, make investments, enact laws, advance time, and watch those choices propagate through places, people, firms, public finances, migration, wellbeing, and chance events.
 
-The intended experience is to make understandable policy choices, see their uneven consequences across communities, inspect evidence-linked stories, and finish with a report on the mandate. It is a compact fictional model for exploration, not a realistic macroeconomic forecast, an AI-powered advisor, or a single-score strategy game. There is no required winning policy. Approval is prominent, but food access, wellbeing, employment, public services, wealth, and debt can move differently.
+The central design principle is **world conditions → people experience them → people react → their actions change the world**. The simulation is not meant to be a realistic forecast or a one-score optimization puzzle. It is meant to generate understandable, uneven, traceable consequences from interacting systems.
+
+The codebase is deliberately organized so adding social richness normally means adding a behavior rule and tests, not teaching the engine a new piece of sociology.
 
 ## What the player does
 
-1. **Inspect the country.** The map shows a generated grid of land and water, four regions, and named urban areas. Select a cell, rectangle, or region. Switch between terrain, approval, wealth, food security, crime pressure, population, pollution, and dominant industry layers. The inspector compares local conditions with national and selected-area summaries.
-2. **Choose a policy.** Use the cabinet to adjust income and business tax, fund seven services, subsidize one of four industries, make an investment, or toggle a law. Local scope matters: a regional or cell-level intervention can help a specific place while leaving other places under different conditions. Previews estimate fiscal effects and investment cost.
-3. **Advance the simulation.** Step one month at a time or run at selectable speeds. Any policy edit pauses playback. Each month is a complete ordered simulation tick; time is not advanced by simply submitting an action.
-4. **Read what happened.** National accounts show trends; the ledger reports selected developments; cause views expose recorded observations and contributing IDs. At mandate end, a report compares initial and final indicators, adds template community voices selected from measured conditions, and traces some sufficiently complete policy-to-story chains.
-5. **Keep or compare the mandate.** Progress autosaves in the browser's IndexedDB. JSON saves can be exported/imported; starting a new country can use a chosen seed.
+1. **Inspect the country.** The map shows generated terrain and settlements. The player can select places and switch layers for local conditions such as approval, wealth, food security, crime, population, pollution, and industry.
+2. **Choose policy.** Cabinet controls include taxes, service spending, sector subsidies, investments, and laws. Scope matters: many interventions can be national, regional, or targeted to selected mapxels.
+3. **Advance time.** One simulation step is one month. Actions mutate policy at the current tick; advancing executes the ordered simulation phases.
+4. **Observe consequences.** Trends, map changes, news, local inspection, and causal views show how policy and world conditions affected residents and downstream systems.
+5. **Finish the mandate.** The mandate report compares initial/final conditions and follows recorded causal chains where the evidence is sufficiently complete.
 
-The HUD and charts use population-weighted national means for local indices. Mapxel `happiness`, `approval`, `employment`, demographic shares, and sector shares are materialized projections of the settled population groups, not a second independent social simulation. Policy previews use a fiscal forecast from current output, while realized tax collection can be lower because it is limited by the private cash actually available in each cell.
+Progress autosaves in IndexedDB and can be exported/imported as validated JSON.
 
-## A useful mental model of the country
+## The country has places and people
 
-The world is a grid of mapxels, approximately 4 km² each. Each land mapxel is the local environment and economy: terrain, resources, food and materials stocks, prices, pollution, infrastructure, crime pressure, business conditions, public-service conditions, and an aggregate private cash account. Mapxels trade with orthogonal neighbors. There are no roads as a separate network: infrastructure changes the modeled rate of local equalization.
+### Mapxels: place and local systems
 
-The people are represented by 2,048 deterministic global human archetypes and sparse mutable population groups instantiated locally in each mapxel. Archetypes hold persistent predispositions, needs, values, and sector affinities. Groups hold the circumstances that change: age, employment, occupation, income, wealth, health, education, wellbeing, approval, and attitudes. The same archetype can simultaneously exist as wealthy employed residents, poor unemployed residents, migrants, students, or retirees. Employment shocks can split a group; similar groups can merge; migration moves actual groups and their archetype composition. Births create child cohorts, deaths remove members of actual groups, and children mature into adults who later retire.
+The world is a grid of mapxels, approximately 4 km² each. A land mapxel represents local physical and economic conditions: terrain, fertility/minerals, food and material stocks, price, pollution, infrastructure, crime pressure, business health, public-service conditions, production, private aggregate cash, and other local indicators.
 
-The central causal loop is **world conditions → people experience them → people react → their reactions change the world**. Policies normally change opportunities, constraints, services, prices, rights, or environmental conditions. Population groups then react according to both their circumstances and archetype. Their settled employment, occupations, wellbeing, approval, migration, demographics, and adaptation are projected back onto mapxel aggregates before the next month. Human properties should not be independently authored at mapxel level when they can be derived from the people living there.
+Mapxels trade with orthogonal neighbors. Infrastructure influences economic equalization and activity; there is no separate road graph yet.
 
-The four sectors compete for workers:
+Mutable mapxel mechanics are centralized in `src/sim/map-fields.ts`. That registry defines engine-level semantics such as bounds, whether a field accepts generic delta effects, and whether negative changes consume a conserved stock. Behavior formulas do **not** belong in that registry.
 
-- **Agriculture** produces staple food. Land fertility and food prices affect its productivity/return.
-- **Manufacturing** produces generic materials and output. Mineral suitability, education, and Clean Air affect it.
-- **Services** contributes output through business viability.
-- **Sports** contributes output and responds to sports interest and culture.
+### Archetypes: durable predispositions
 
-Residents need one food unit per month. Insufficient food lowers food security; shortages and high food prices weaken business health. Firms and policy create changing job opportunities; actual population groups gain or lose employment, and unemployed groups may retrain toward sectors that fit local opportunity, subsidies, prices, education access, and their archetype. The final mapxel sector and employment shares are then projected from those people. Read `docs/RULES.md` for equations and thresholds before making numerical claims.
+The simulation defines roughly 2,048 deterministic global archetypes. Archetypes are not voters and are not current socioeconomic classes. They represent relatively durable predispositions: traits, needs, values, mobility/community attachment, adaptability, and sector affinities.
 
-Keep the accounting layers separate:
+An archetype is closer to “how this kind of person tends to evaluate situations” than “what is currently happening to them.”
 
-- `output` measures abstract monthly activity and is not cash.
-- Cell cash is private household/business reserves in an aggregate local account.
-- Group income and wealth are distributional human state; they are not separately conserved bank accounts yet.
-- The treasury is government cash; debt tracks borrowing and unpaid interest.
-- The external account is finite. Export receipts, imports/procurement, investments, and interest cross that boundary.
-- Food and materials are stocks. Trades move a stock and cash payment together.
+### Population groups: mutable circumstances
 
-This is why a policy can have multiple consequences. A subsidy changes public spending and local opportunity; people may retrain, keep or lose jobs, move, or experience different wellbeing; their changed labor mix then affects later production, pollution, prices, businesses, migration, and tax revenue. These are interacting mechanics, not scripted narrative beats.
+Each mapxel contains a sparse set of population groups. A group combines an archetype with mutable lived circumstances such as:
 
-## The simulation's design principles
+- count,
+- age and life stage,
+- education,
+- occupation,
+- employment,
+- income,
+- wealth,
+- health,
+- wellbeing,
+- approval,
+- attitudes.
 
-### Explicit, sequential monthly phases
+The same archetype can exist simultaneously as employed and unemployed residents, rich and poor residents, migrants, retirees, children, or people in different sectors. Circumstances change without requiring an archetype change.
 
-The engine increments the month, then runs production, trade, consumption, market adjustment, taxation, financing, fiscal payments, society/world conditions, population experience, aging, demographics, migration, population retraining, and stochastic events plus final population projection. Every rule in one phase reads the same immutable snapshot. Rules propose effects; the engine settles the entire phase before taking the next snapshot. A rule cannot see another rule's same-phase proposal, even if an `after` dependency orders them.
+Population groups can split when a meaningful discrete divergence occurs, such as job loss, migration, or retraining. Similar groups can merge again. The representation is intentionally sparse.
 
-### Effects instead of direct mutation
+Mutable population-state mechanics are centralized in `src/sim/population/fields.ts`, including storage, bounds, and merge tolerances. Adding a new scalar human state should extend that registry rather than add synchronized field lists throughout settlement/validation/merge code.
 
-Rules describe resource deltas, account transfers, coupled trades, budget changes, events, population state changes, population transitions, births/deaths, or population transfers. The engine validates and commits those effects. Competing outflows are proportionally constrained by phase-start balances; incoming resources cannot be re-spent inside that phase. Transfers conserve cash; trades conserve the paired goods/payment exchange; migration and group splitting conserve population; births and deaths are explicit population sources and sinks.
+## People are authoritative
 
-### People are authoritative for human aggregates
+`PopulationGroup` is the source of truth for mutable human state.
 
-`PopulationGroup` is the source of truth for mutable human state. `population.aggregate` materializes mapxel employment, wellbeing/happiness, approval, child/senior shares, and employed occupational shares from those groups at the end of the month. Economy and UI code may read those mapxel fields as cached projections, but new social mechanics should act on groups first rather than inventing a second mapxel-level human state. The legacy `economy.labor` aggregate adaptation rule remains exported for compatibility/tests but is not in `defaultRules`; ordinary sector adaptation occurs through population retraining and employment changes.
+Mapxel fields such as employment, happiness/wellbeing, approval, child/senior shares, and sector labor shares are materialized projections of the people living there. They exist because economy rules, summaries, and UI need convenient local aggregates, but they are **not** an independent human simulation.
 
-### Determinism with bounded chance
+A useful rule when designing mechanics is:
 
-Given the same seed and choices, keyed rule randomness is reproducible. Random streams are keyed by world seed, tick, rule, cell, and channel so unrelated rules do not disturb each other's rolls. Events are chance-conditioned and use one candidate place per event family per month plus cooldowns. This keeps event rates from multiplying just because the map has more cells.
+> Nothing social should happen directly to a mapxel when it can instead happen to the people living there.
 
-### Observable but selective causality
+Policies normally change opportunities, constraints, services, prices, rights, public spending, or environmental conditions. Population groups then experience those conditions according to their mutable state and archetype. Their reactions alter employment, occupation, migration, demographics, wellbeing, and eventually the map/economy/politics again.
 
-Meaningful effects can record observations, affected cells, magnitude, and parent cause IDs. News keeps links to those records, and the end report follows existing cause links. The journal is selective: small updates may have no entry; parent links represent recorded inputs, not counterfactual proof or full causal attribution. Community quotes and news wording are templates selected from model state, not simulated conversations or an unconstrained text generator.
+The default aggregate `economy.labor` adaptation rule remains exported for compatibility and selected tests, but it is not part of `defaultRules`. Normal labor change happens through actual population-group employment transitions and retraining.
 
-### Validate actions and saves at boundaries
+## A representative causal story
 
-Government actions are data, never generated JavaScript. `validateAction` is authoritative; parsing and previews do not mutate the live game. An action package is checked as a whole and enactment returns a new state. Imported saves are version-checked, reconstitute the seeded world, and validate topology, mutable fields, population groups, references, and histories before use.
+A sector subsidy illustrates the intended loop:
+
+```text
+policy subsidy
+→ local sector opportunity changes
+→ population groups evaluate alternatives
+→ some workers retrain/switch occupation
+→ population.aggregate changes local labor shares
+→ production mix changes in later months
+→ stocks/prices/business health change
+→ people experience those new conditions
+→ later migration/retraining/wellbeing responses change again
+```
+
+The simulation should not hard-code the narrative outcome. A moderate subsidy may produce a manageable reallocation; an extreme intervention combined with bad conditions may produce a crisis. Tests should verify mechanisms and bounded consequences, not insist that ordinary policy always generates drama.
+
+## Economy/accounting layers
+
+Keep these layers distinct:
+
+- `output` is abstract monthly economic activity, not cash.
+- Cell cash is an aggregate local private household/business reserve.
+- Group income and wealth are distributional behavioral state and are not separately conserved bank accounts yet.
+- The treasury is government cash.
+- Debt tracks government borrowing/principal.
+- `externalCash` is the modeled external boundary for flows such as exports, procurement, investment, and interest.
+- Food and materials are conserved local stocks except for explicit production/consumption/source/sink effects.
+- Trades move both goods and payment atomically.
+
+This separation is why an intervention can affect production, affordability, budget funding, employment, and wellbeing through different channels rather than through one generic “economy modifier.”
+
+## Monthly simulation phases
+
+The phase list is defined in `src/sim/types.ts`. In broad terms a month runs:
+
+```text
+production
+trade
+consumption
+market
+taxation
+financing
+fiscal
+society
+population experience
+aging
+demographics
+migration
+adaptation / retraining
+events + population aggregate projection
+```
+
+Rules in a phase conceptually read the same phase-start state and emit Effects. Settlement happens after all active rules for that phase have proposed their Effects.
+
+A rule cannot observe another rule's same-phase result. `after` dependencies order rule evaluation but do not turn same-phase proposals into sequential state mutation.
+
+### Important final-phase nuance
+
+`stories.events` and `population.aggregate` currently share the `events` phase. Because they read the same phase-start snapshot, stochastic population changes made by an event are not visible to the aggregate projection until the following tick. This is a known architectural nuance, not a reason to bypass the people-first model with direct aggregate writes. If same-month event projection becomes important, the clean solution is a later projection phase, not special-case mutation.
+
+## Rules emit Effects, they do not mutate state
+
+The rule contract is intentionally small:
+
+```ts
+interface Rule {
+  id: string;
+  phase: Phase;
+  after?: readonly string[];
+  description: string;
+  run(context: RuleContext): Effect[];
+}
+```
+
+Rules inspect state and return generic Effects. The core Effect vocabulary covers:
+
+- mapxel deltas,
+- conserved-resource/account transfers,
+- coupled trades,
+- debt repayment and budget updates,
+- events,
+- population transfers,
+- population transitions,
+- population state changes,
+- explicit births/deaths.
+
+The engine and settlement layers should not gain a new Effect kind for every new behavior. Religion, activism, disease, housing choice, family formation, unionization, crime participation, etc. should normally compose the existing state transformations.
+
+## Settlement and conservation
+
+`src/sim/settlement/resources.ts` owns generic resource settlement.
+
+It plans total outgoing demand from phase-start balances, scales competing demands when they exceed available resources, settles transfers/trades/budget/debt effects, and applies accumulated mapxel deltas. Incoming goods/cash cannot be re-spent inside the same phase.
+
+`src/sim/population/settlement.ts` owns population-specific splitting/movement/state updates. Population is conserved across transfers/transitions except for explicit births and deaths.
+
+Discrete behavioral cohort flows use deterministic stochastic quantization at person-scale resolution where appropriate. The accounting layer remains continuous, but the representation should not create thousands of groups for 0.00003-person migration histories. Quantization preserves expected flows while keeping the sparse group model computationally meaningful.
+
+## Causality and provenance
+
+`src/sim/causality/provenance.ts` owns causal recording mechanics.
+
+Effects may include evidence describing:
+
+- affected cells,
+- relevant group state reads,
+- relevant mapxel reads,
+- parent provenance keys such as policy changes,
+- human-readable explanation text.
+
+The causality layer turns significant realized Effects into causes, observations, event articles, and provenance writes.
+
+Provenance writes are buffered until the end of the phase. A cause created inside a phase therefore cannot incorrectly claim a causal parent that was only produced by another same-phase effect.
+
+These records are **selective evidence**, not a complete causal DAG and not counterfactual proof. Small changes may be omitted. The developer workbench can also estimate local sensitivities/perturbations, but a derivative is not the same thing as historical causation.
+
+Player UI and developer tooling should ultimately consume the same underlying causal evidence, with different levels of presentation.
+
+## Model validation
+
+`src/sim/validation/model.ts` owns runtime model invariants. `engine.ts` re-exports `assertModel` for compatibility with existing callers/tests.
+
+Validation checks population identity/conservation, registry-defined population-state bounds, transition-field validity, public accounts, registry-defined mapxel bounds, sector normalization, demographic consistency, price-control constraints, and related structural invariants.
+
+Save validation in `src/sim/save.ts` separately validates serialized boundary data and references before importing a save.
+
+When adding state, prefer extending the relevant field registry and having validation derive from it rather than adding one more handwritten list.
+
+## Engine responsibilities
+
+`src/sim/engine.ts` is now primarily an orchestrator. It owns:
+
+- rule dependency ordering,
+- phase execution,
+- trusted/untrusted snapshot policy,
+- efficient game/model cloning,
+- population-phase coordination,
+- the top-level monthly `step()`.
+
+It deliberately does **not** own generic resource accounting, causality, or model validation anymore.
+
+### Trusted and untrusted snapshot behavior
+
+For built-in trusted rules, performance matters. The engine lets rules read the live phase-start model, gathers their proposals, then snapshots only the state categories those proposals are about to mutate before settlement.
+
+For untrusted/extension rules, the engine provides a fully cloned and deeply frozen snapshot so an extension cannot mutate or partially advance the caller's game.
+
+This optimization preserves phase-start semantics while avoiding full-world cloning for every built-in phase.
+
+Do not casually change this path: snapshotting affects determinism, atomicity, performance, evidence observations, and settlement correctness.
+
+## Society rule organization
+
+The former large `rules/society.ts` has been split by domain:
+
+```text
+src/sim/rules/society.ts              thin society-phase orchestrator
+src/sim/rules/society/conditions.ts   crime, health, education, infrastructure, pollution
+src/sim/rules/society/labor.ts        sector viability, employment transitions
+src/sim/rules/society/wellbeing.ts    happiness/approval/etc. society-phase conditions
+src/sim/rules/society/migration.ts    group-specific migration
+```
+
+Use this pattern as the simulation gets richer. Split by coherent gameplay domain, not by arbitrary line count, and avoid constructing a generic behavior-plugin framework merely because there are many behaviors.
 
 ## Code architecture and data flow
 
 ```text
-Browser UI (src/App.vue, src/components/, src/composables/useGame.ts)
-   │  selection, preview, action, advance
-   ├── action → parse/validate/preview → enact → new Game
-   └── advance → step(Game)
-                    │
-                    ├── world.ts creates the initial seeded Game
-                    ├── rules/ create local economic/environmental conditions
-                    ├── population/ makes groups experience and react to them
-                    ├── engine.ts settles effects and validates each phase
-                    ├── population.aggregate projects people back to mapxel caches
-                    ├── math.ts summarizes metrics and provides keyed RNG
-                    └── narrative.ts turns evidence into articles and reports
+Browser UI
    │
-   ├── render national/local views, trends, ledger, and cause chains
-   └── save.ts serializes/validates JSON; ui/storage.ts persists autosaves
+   ├── policy/action → policy.ts → new Game
+   │
+   └── advance month
+          │
+          ▼
+       engine.ts
+       orchestration
+          │
+          ├── rules/ + population/ behavior rules
+          │        │
+          │        └── Effects[]
+          │
+          ├── settlement/resources.ts
+          ├── population/settlement.ts
+          │
+          ├── causality/provenance.ts
+          │
+          ▼
+       updated Model
+          │
+          ├── population.aggregate → cached human mapxel projections
+          ├── validation/model.ts
+          ├── math.ts summaries
+          └── narrative.ts news/reporting
 ```
 
-The core simulation in `src/sim/` is browser-framework-independent:
+The simulation in `src/sim/` is framework-independent. Vue is a presentation shell around it.
 
-| Module | What it owns | Where to start |
-| --- | --- | --- |
-| `types.ts` | `Game`, `Model`, `Mapxel`, archetypes, population groups, actions, effects, rule contract, metrics | Understand the data vocabulary before changing shape or behavior. |
-| `population/` | Deterministic archetypes, sparse group generation, settlement, merging, selectors, experience, demographics, retraining, and aggregate projection | Keep archetype baselines separate from mutable group circumstances and keep groups authoritative. |
-| `world.ts` | Seeded geography, initial cell values, default policy and accounts | Understand what a new country starts with. |
-| `rules.ts`, `rules/` | Rule registry and domain implementations for economy, state, society, and events | Find world/environment mechanics and the active phase registry. |
-| `policy.ts` | Scope resolution, action validation, preview, policy enactment and budget forecast | Change government controls or policy effects. |
-| `engine.ts` | Dependency ordering, snapshots, settlement, invariants, complete tick | Change rule execution or accounting behavior. |
-| `math.ts` | Clamp/approach helpers, deterministic RNG, national summaries | Change aggregation, summaries, or keyed randomness. |
-| `narrative.ts` | Monthly articles, cause traversal, selected voices, mandate report | Change interpretation or reporting of outcomes. |
-| `save.ts` | Versioned JSON serialization, import checks and validation | Change persisted state or save compatibility. |
+## Module map
 
-`src/main.ts` mounts the Vue application or the optional developer workbench. `src/App.vue` composes the player views, `src/components/` owns their controls, and `src/composables/useGame.ts` manages the browser-facing game state, playback, and autosave. `src/ui/map.ts` draws the canvas map inside `MapPanel.vue`; `src/ui/storage.ts` wraps IndexedDB autosaves. `src/dev/` contains traces and causal rule analysis. Vite builds a static client; there is no backend or external AI service.
+| Module | Responsibility |
+| --- | --- |
+| `types.ts` | Core data vocabulary, rule/effect contracts, phase list. |
+| `map-fields.ts` | Mutable mapxel engine semantics and bounds. |
+| `population/fields.ts` | Mutable group state storage/bounds/merge semantics. |
+| `population/archetypes.ts` | Deterministic archetype definitions/cache. |
+| `population/generate.ts` | Initial sparse groups. |
+| `population/experience.ts` | How groups experience local economic/social conditions and drift. |
+| `population/demographics.ts` | Aging/life-stage transitions, births, mortality. |
+| `population/retraining.ts` | Sector opportunity evaluation and occupation switching. |
+| `population/aggregation.ts` | Materializes human mapxel projections from settled groups. |
+| `population/settlement.ts` | Population effect planning/splitting/movement/state settlement. |
+| `population/merge.ts` | Deterministic cohort compaction using registry tolerances. |
+| `rules/economy.ts` | Production, trade, consumption, market/business mechanics. |
+| `rules/state.ts` | Taxation, financing, and fiscal/service payments. |
+| `rules/society/*` | Local social conditions, labor, wellbeing, migration. |
+| `rules/events.ts` | Stochastic story/event mechanics. |
+| `settlement/resources.ts` | Generic conserved resource and mapxel effect settlement. |
+| `causality/provenance.ts` | Evidence/cause/event/provenance infrastructure. |
+| `validation/model.ts` | Runtime invariants. |
+| `engine.ts` | Rule ordering, phase orchestration, snapshots, monthly step. |
+| `policy.ts` | Government action validation, preview, and enactment. |
+| `world.ts` | Seeded world and starting state. |
+| `math.ts` | Numerical helpers, summaries, keyed RNG. |
+| `narrative.ts` | Articles, causal traversal, mandate report. |
+| `save.ts` | Versioned serialization/import validation. |
+| `src/dev/` | Developer causal/sensitivity workbench. |
 
-In an ordinary turn, the key state transition is:
+## Adding a new behavior
+
+A normal new behavior should follow this route:
 
 ```text
-game = createGame(seed)
-game = enact(game, validatedActions)  // same tick, new state
-game = step(game, defaultRules)       // one complete month
+new gameplay idea
+→ choose/create coherent domain module
+→ read existing place + population state
+→ calculate reaction from lived state + archetype
+→ emit generic Effects + evidence
+→ generic settlement/provenance handles mechanics
+→ focused tests
+→ scenario test only when cross-system emergence needs protection
 ```
 
-Both action enactment and tick execution work with new game state rather than directly editing the caller's original state. `step` also makes the monthly transition atomic: if validation fails, the failed candidate tick is discarded.
+For a new mutable human property, update `PopulationGroup` plus `population/fields.ts` and verify save/UI implications.
 
-## Fast orientation: where to read next
+For a new mutable place property, update `Mapxel` plus `map-fields.ts` and verify world generation/save/UI implications.
 
-- For exact units, equations, summary metrics, action bounds, event probabilities, and known limitations: [`docs/RULES.md`](../../../docs/RULES.md).
-- For console syntax and action validation/AI boundary: [`docs/ACTIONS.md`](../../../docs/ACTIONS.md).
-- For model rationale, extension contracts, and calibration caveats: [`docs/SIMULATION.md`](../../../docs/SIMULATION.md).
-- For the player-facing feature list and run commands: [`README.md`](../../../README.md).
-- For invariants and behavior checks, begin with `tests/engine.test.ts`, `tests/population.test.ts`, `tests/population-authority.test.ts`, and `tests/scenarios.test.ts`; browser workflows are in `tests/browser/game.spec.ts`.
+Do not add domain-specific conditionals to `engine.ts`, resource settlement, validation, or causality unless the new concept genuinely changes an engine-level invariant.
 
-Useful commands documented by the project:
+## Testing philosophy
+
+The suite is intentionally behavioral, not only structural.
+
+Prefer tests that protect:
+
+- conservation,
+- phase simultaneity,
+- atomic failure,
+- deterministic keyed randomness,
+- people-first authority,
+- directional policy effects,
+- bounded long-run behavior,
+- causal traceability,
+- save/load reproducibility,
+- browser workflows.
+
+Scenario tests should protect **mechanisms**, not force a screenplay. If an ordinary sports subsidy reallocates labor and creates modest food pressure, the test should not insist on a national famine followed by a heroic recovery. Use an explicit stress scenario when a crisis/recovery feedback is what needs testing.
+
+For stochastic flows, focused tests may choose deterministic RNG draws to expose a mechanism. End-to-end scenarios should normally keep keyed randomness and test directional/statistical/bounded outcomes rather than exact fractional bodies.
+
+For tiny perturbations in a thresholded nonlinear simulation, test that national outcomes remain bounded at appropriate scale; do not require exact reconvergence after decades.
+
+Key test areas include:
+
+- `tests/engine.test.ts` for engine/resource/atomicity contracts,
+- population authority/resolution/registry tests,
+- rule-analysis/devtool causal tests,
+- scenario/extreme/historical/ripple suites,
+- `tests/browser/` for E2E UI flows.
+
+## Performance model
+
+The performance strategy is **sparse people, not fewer possible people-types**.
+
+The approximately 2,048 archetypes are cheap definitions. Runtime cost is driven much more by live group count, group churn, proposal allocation, population settlement, migration/retraining/demographics, aggregation, and snapshots.
+
+The project intentionally avoids tracking microscopic behavioral histories as independent cohorts. Person-scale stochastic quantization and deterministic compaction keep the sparse representation sparse while preserving expected flow.
+
+`./scripts/perf-sim.ts` and `.github/workflows/perf-sim.yml` provide the current benchmark/profiling path. Treat benchmark numbers as observations, not gameplay contracts. Optimize representation/settlement before sacrificing social diversity or changing model semantics.
+
+## Developer workbench
+
+`src/dev/` exists to understand how the simulation works, not just inspect raw state.
+
+It should help answer:
+
+```text
+what changed?
+what inputs mattered?
+which people reacted?
+what did they do?
+what changed downstream?
+```
+
+The causal graph combines explicit reads/effects/provenance with local perturbation analysis. Direct rule inputs should remain visible even when the current local derivative happens to be zero. Expensive perturbation/Jacobian-style analysis belongs in the on-demand developer path, not every simulation tick.
+
+The intended player-facing hierarchy is roughly:
+
+```text
+SEE IT        map/world activity
+NOTICE IT     headlines, trends, salient changes
+UNDERSTAND IT causal chains
+INVESTIGATE IT groups, sensitivities, history
+```
+
+The world should visibly react before the game explains everything in a wall of diagnostics.
+
+## Important modeling limitations
+
+Current deliberate simplifications include:
+
+- population groups are cohorts, not individual households;
+- group wealth/income are not separately conserved personal accounts;
+- firms are represented through local sector/business conditions rather than individual firm agents;
+- sector labor share still carries some structural/economic meaning that may eventually be separated from durable firm/job capacity;
+- there is no separate road network;
+- no full political parties/election system, diplomacy, multiplayer, or external AI service;
+- event effects and population aggregate projection currently share a phase, producing the one-tick projection nuance described above;
+- causal journals are selective evidence rather than complete counterfactual explanations.
+
+When extending the model, preserve these distinctions rather than silently treating a simplification as a physical law.
+
+## Commands and execution
 
 ```sh
 npm install
-npm run dev        # local browser play
-npm test           # simulation and policy tests
-npm run build      # TypeScript check and static bundle
-npm run calibrate  # multi-seed, multi-policy calibration scenarios
-npm run test:e2e   # browser playthrough tests; requires Playwright browser setup
+npm run dev
+npm test
+npm run build
+npm run test:e2e
+npm run calibrate
+npx tsx scripts/perf-sim.ts
 ```
 
-Calibration output is evidence for its specific seeds, scenarios, and protocol, not a general stability proof. Tests describe intended repository behavior, but when they conflict with current product intent, inspect the relevant implementation and user instruction before changing semantics.
+The PR CI runs the unit/behavioral suite, production build/typecheck, Playwright setup, and E2E tests. A separate Actions workflow runs the simulation performance probe. GitHub Actions is a valid execution harness when a local checkout/runtime is unavailable.
 
-## Scope boundaries
+## Documentation responsibilities
 
-The simulation deliberately aggregates residents into population groups and firms into local economic indices. Population groups are cohorts, not individual people or households. Group income and wealth are behavioral/distributional state rather than separate conserved accounts. Food is a staple basket; manufacturing materials are generic; restaurant/retail failure is represented by business health. It currently has no separately accounted firms, market auction, political parties/elections, diplomacy, multiplayer, or real AI calls. Be clear about these boundaries when explaining features or proposing extensions.
+- `docs/RULES.md`: player/readable mechanics, equations, thresholds, and metrics.
+- `docs/ACTIONS.md`: government controls, action syntax, validation, AI/action boundary.
+- `docs/SIMULATION.md`: design rationale, architecture, extension contracts, calibration caveats, limitations.
+- `.agents/skills/commonwealth-city/SKILL.md`: concise operational contract for coding/design agents.
+- this file: deeper onboarding/mental model.
+
+When architecture changes enough that the module map or authority model changes, update the skill/orientation in the same work rather than letting future agents reverse-engineer yesterday's assumptions from old prose.
+
+## Fast orientation: what to read next
+
+For exact formulas, bounds, event probabilities, and metrics, read `docs/RULES.md` and then verify current source. For action validation, read `docs/ACTIONS.md` and `policy.ts`. For model rationale and limitations, read `docs/SIMULATION.md`. For invariants, start with engine/population registry tests. For emergent behavior, read the relevant scenario tests. For causal debugging, inspect `src/dev/` and provenance-aware rule evidence.
+
+Calibration output is evidence for its specified seeds/scenarios/protocol, not a universal stability guarantee. Tests encode intended repository behavior, but when product intent changes, update stale tests around the intended mechanism rather than tuning the simulation to satisfy obsolete drama.
