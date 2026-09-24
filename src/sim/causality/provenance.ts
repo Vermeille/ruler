@@ -67,6 +67,13 @@ export function createPhaseCausality(
   const provenance = game.provenance;
   const writes: ProvenanceWrites = {};
   const eventIds = new Map<string, string>();
+  const pendingEventLinks: { eventKey: string; provenanceKey: string }[] = [];
+
+  const linkToEvent = (eventKey: string, provenanceKey: string) => {
+    const eventId = eventIds.get(eventKey);
+    if (eventId) writes[provenanceKey] = eventId;
+    else pendingEventLinks.push({ eventKey, provenanceKey });
+  };
 
   function recordEvent(rule: string, effect: Extract<Effect, { kind: 'event' }>): void {
     const causeId = recordCause(game, snapshot, rule, effect.evidence, 1, provenance);
@@ -97,9 +104,7 @@ export function createPhaseCausality(
 
   function linkEventDelta(effect: Extract<Effect, { kind: 'delta' }>): void {
     if (!effect.eventKey) return;
-    const eventId = eventIds.get(effect.eventKey);
-    if (!eventId) throw new Error(`Missing event ${effect.eventKey}`);
-    writes[`${effect.cell}:${effect.field}`] = eventId;
+    linkToEvent(effect.eventKey, `${effect.cell}:${effect.field}`);
   }
 
   function recordPopulation(
@@ -113,9 +118,9 @@ export function createPhaseCausality(
         : ['count'];
 
     if (effect.kind === 'population-state' && effect.eventKey && resultingGroup !== undefined) {
-      const eventId = eventIds.get(effect.eventKey);
-      if (!eventId) throw new Error(`Missing event ${effect.eventKey}`);
-      for (const field of fields) writes[`group:${resultingGroup}:${field}`] = eventId;
+      for (const field of fields) {
+        linkToEvent(effect.eventKey, `group:${resultingGroup}:${field}`);
+      }
     }
 
     if (!effect.evidence || actual <= 1e-9) return;
@@ -129,6 +134,10 @@ export function createPhaseCausality(
   }
 
   function commit(): void {
+    for (const { eventKey, provenanceKey } of pendingEventLinks) {
+      const eventId = eventIds.get(eventKey);
+      if (eventId) writes[provenanceKey] = eventId;
+    }
     Object.assign(game.provenance, writes);
   }
 
