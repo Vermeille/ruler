@@ -17,7 +17,7 @@ export type SectorViability = Record<Sector, number>;
 export function viabilityOf(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
-  averageWorkerHealth = cell.health,
+  averageWorkerHealth: number,
 ): SectorViability {
   return {
     agriculture: viableJobs(cell, model, 'agriculture', averageWorkerHealth),
