@@ -23,6 +23,18 @@ jobs:
           cache: npm
       - run: npm install
       - run: node scripts/refactor-map-fields.mjs
+      - name: Keep mutable-field observation validation on the registry
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/sim/save.ts')
+          text = path.read_text()
+          old = "import { isMutableMapxelField, validMapxelFieldValue } from './map-fields';"
+          new = "import { MUTABLE_FIELDS, isMutableMapxelField, validMapxelFieldValue } from './map-fields';"
+          if text.count(old) != 1:
+              raise SystemExit('expected map field import not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
       - run: npm test
       - run: npm run build
       - name: Commit validated refactor
