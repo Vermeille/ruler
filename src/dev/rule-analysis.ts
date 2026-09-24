@@ -154,7 +154,7 @@ const NORMALIZED_FIELDS = new Set<string>([
 ]);
 const MAX_INPUTS_PER_GROUP = 5;
 const MAX_ANALYZED_INPUTS = 72;
-const MAX_INPUT_GROUPS = 14;
+const MAX_INPUT_GROUPS = 32;
 const MAX_OUTPUT_GROUPS = 10;
 
 function words(value: string): string {

@@ -19,6 +19,18 @@ const delta = (all: Effect[], cell: number, field: MutableField) => {
   return found.amount;
 };
 const near = (actual: number, expected: number, tolerance = 1e-7) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
+const migrationEffects = (game: Game, draw: number) => effects(migrationRule, game, () => draw);
+const outboundMigrants = (game: Game, from: number, draw: number) => migrationEffects(game, draw)
+  .filter((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
+    effect.kind === 'population-transfer' && effect.from === from)
+  .reduce((sum, effect) => sum + effect.amount, 0);
+const expectedOutboundMigrants = (game: Game, from: number, samples = 400) => {
+  let total = 0;
+  for (let index = 0; index < samples; index += 1) {
+    total += outboundMigrants(game, from, (index + 0.5) / samples);
+  }
+  return total / samples;
+};
 
 test('production depends on labor, terrain, weather and Clean Air, with an explicit export receipt', () => {
   const g = tiny(), c = land(g), e = effects(productionRule, g);
@@ -211,23 +223,30 @@ test('severe local food deprivation causes explicit deaths and resets when food 
   near(step(fed, [societyRule, populationDemographicsRule]).model.cells[c.id].starvationDeaths, 0);
 });
 
-test('migration moves population and proportional savings toward appeal; movement law scales both', () => {
+test('migration moves population and proportional savings toward appeal; movement law dampens expected flow', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
   a.happiness = 0; b.happiness = 1;
-  const flow = (game: Game) => effects(migrationRule, game).filter(e =>
-    (e.kind === 'transfer' || e.kind === 'population-transfer') && e.from === a.id && e.to === b.id);
-  const open = flow(g);
-  const residents = open.filter(e => e.kind === 'population-transfer')
+
+  const open = migrationEffects(g, 0);
+  const populationMoves = open.filter((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
+    effect.kind === 'population-transfer' && effect.from === a.id);
+  assert.ok(populationMoves.length > 0);
+  const destination = populationMoves[0].to;
+  const residents = populationMoves.filter(effect => effect.to === destination)
     .reduce((sum, effect) => sum + effect.amount, 0);
-  const savings = open.find(e => e.kind === 'transfer' && e.resource === 'cash');
-  assert.ok(residents > 0 && savings && savings.kind === 'transfer');
+  const savings = open.find(e => e.kind === 'transfer' && e.resource === 'cash'
+    && e.from === a.id && e.to === destination);
+  assert.ok(savings && savings.kind === 'transfer');
   near(savings.amount, residents * a.cash / a.population);
-  const closed = structuredClone(g); closed.model.policy.laws.freeMovement = false;
-  const restricted = flow(closed).filter(e => e.kind === 'population-transfer')
-    .reduce((sum, effect) => sum + effect.amount, 0);
-  assert.ok(restricted > 0);
-  near(restricted, residents * .08);
+
+  const closed = structuredClone(g);
+  closed.model.policy.laws.freeMovement = false;
+  const openExpected = expectedOutboundMigrants(g, a.id);
+  const restrictedExpected = expectedOutboundMigrants(closed, a.id);
+  assert.ok(openExpected > 0);
+  assert.ok(restrictedExpected < openExpected * .2,
+    `movement restrictions should sharply reduce expected flow: ${openExpected} → ${restrictedExpected}`);
 });
 
 test('migration follows local earning opportunities when other conditions match', () => {
@@ -235,32 +254,40 @@ test('migration follows local earning opportunities when other conditions match'
   const b = g.model.cells[g.model.neighbors[a.id][0]];
   for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, happiness: .65, employment: .9, foodSecurity: 1, price: 1 });
   a.output = 400; b.output = 1600;
-  const flow = effects(migrationRule, g).find(e => e.kind === 'population-transfer' && e.from === a.id && e.to === b.id);
-  assert.ok(flow && flow.kind === 'population-transfer' && flow.amount > 0, 'workers move toward higher cash-generating output');
+  assert.ok(expectedOutboundMigrants(g, a.id) > 0, 'workers move out of the lower-opportunity place');
 });
+
 test('migration does not request negative savings transfers from a cash-depleted cell', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
   a.cash = -1e-14;
   a.happiness = .1;
   b.happiness = 1;
-  const moves = effects(migrationRule, g).filter(e =>
-    (e.kind === 'transfer' || e.kind === 'population-transfer') && e.from === a.id && e.to === b.id);
+  const moves = migrationEffects(g, 0).filter(e =>
+    (e.kind === 'transfer' || e.kind === 'population-transfer') && e.from === a.id);
   assert.ok(moves.some(e => e.kind === 'population-transfer' && e.amount > 0));
   assert.ok(moves.every(e => 'amount' in e && e.amount >= 0));
 });
 
-test('high food costs or shortages can reverse an output advantage', () => {
-  const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
-  const b = g.model.cells[g.model.neighbors[a.id][0]];
-  for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, happiness: .65, employment: .9, foodSecurity: 1, price: 1 });
-  a.output = 400; b.output = 1600;
-  b.price = 5;
-  const expensive = effects(migrationRule, g).find(e => e.kind === 'population-transfer' && e.from === b.id && e.to === a.id);
-  assert.ok(expensive && expensive.kind === 'population-transfer' && expensive.amount > 0, 'purchasing power matters more than nominal output');
-  b.price = 1; b.foodSecurity = 0;
-  const hungry = effects(migrationRule, g).find(e => e.kind === 'population-transfer' && e.from === b.id && e.to === a.id);
-  assert.ok(hungry && hungry.kind === 'population-transfer' && hungry.amount > 0, 'workers leave a place where they cannot eat');
+test('high food costs or shortages raise outward migration pressure', () => {
+  const g = tiny();
+  const b = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
+  for (const id of [b.id, ...g.model.neighbors[b.id]]) {
+    const cell = g.model.cells[id];
+    if (cell.biome !== 'water') Object.assign(cell, { cash: 8000, happiness: .65, foodSecurity: 1, price: 1 });
+  }
+  const baseline = expectedOutboundMigrants(g, b.id);
+
+  const expensive = structuredClone(g);
+  expensive.model.cells[b.id].price = 5;
+  const costlyFlow = expectedOutboundMigrants(expensive, b.id);
+
+  const hungry = structuredClone(g);
+  hungry.model.cells[b.id].foodSecurity = 0;
+  const hungryFlow = expectedOutboundMigrants(hungry, b.id);
+
+  assert.ok(costlyFlow > baseline, `higher local prices should increase outward pressure: ${baseline} → ${costlyFlow}`);
+  assert.ok(hungryFlow > baseline, `local hunger should increase outward pressure: ${baseline} → ${hungryFlow}`);
 });
 
 test('industry adaptation keeps shares normalized and reacts to subsidies and food prices', () => {

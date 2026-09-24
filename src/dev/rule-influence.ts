@@ -1,4 +1,5 @@
 import { randomAt } from '../sim/math';
+import { populationStateFieldSpec } from '../sim/population/fields';
 import { defaultRules } from '../sim/rules';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import {
@@ -267,6 +268,10 @@ function inputGroupMatchesPath(inputKey: string, path: string): boolean {
     const field = inputKey.slice('cell.'.length);
     return new RegExp(`^cells\\.\\d+\\.${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(path);
   }
+  if (inputKey.startsWith('population.')) {
+    const field = inputKey.slice('population.'.length).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^populationGroups\\.\\d+\\.\\d+\\.(?:${field}|attitudes\\.${field})$`).test(path);
+  }
   if (inputKey.startsWith('policy.')) return path === inputKey;
   if (inputKey.startsWith('budget.')) return path === inputKey;
   if (inputKey.startsWith('global.')) return path === inputKey.slice('global.'.length);
@@ -298,7 +303,44 @@ function inputReadPaths(
 }
 
 function ruleWrittenPaths(trace: PhaseTrace['rules'][number], model: Model): InfluencePath[] {
-  return writtenPaths(trace.effects, '', model);
+  const result: InfluencePath[] = [];
+  const seen = new Set<string>();
+  const add = (path: string) => {
+    const key = `model:${path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({ source: 'model', path, label: pathLabel(path, model) });
+  };
+
+  for (const effect of trace.effects) {
+    if (effect.kind === 'population-state' || effect.kind === 'population-transition') {
+      const index = model.populationGroups[effect.cell].findIndex(group => group.id === effect.group);
+      if (index < 0) continue;
+      if (effect.kind === 'population-state') {
+        for (const field of Object.keys(effect.change)) {
+          const spec = populationStateFieldSpec(field);
+          if (!spec) continue;
+          add(spec.storage === 'attitudes'
+            ? `populationGroups.${effect.cell}.${index}.attitudes.${field}`
+            : `populationGroups.${effect.cell}.${index}.${field}`);
+        }
+      } else {
+        for (const field of Object.keys(effect.transition)) {
+          add(`populationGroups.${effect.cell}.${index}.${field}`);
+        }
+      }
+      continue;
+    }
+
+    for (const write of writtenPaths([effect], '', model)) {
+      const key = `${write.source}:${write.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(write);
+    }
+  }
+
+  return result;
 }
 
 function collectProducers(
