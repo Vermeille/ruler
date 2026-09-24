@@ -1,0 +1,45 @@
+name: One-shot engine clone optimization
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/perf-codemod.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch engine clone
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/sim/engine.ts')
+          text = path.read_text()
+          old = """function cloneGameForStep(game: Game): Game {\n  return {\n    ...game,\n    model: structuredClone(game.model),\n    causes: [...game.causes],\n    articles: [...game.articles],\n    history: [...game.history],\n    provenance: { ...game.provenance },\n    lastEvents: { ...game.lastEvents },\n  };\n}\n"""
+          new = """function cloneModel(model: Model): Model {\n  return {\n    ...model,\n    cells: model.cells.map(cell => ({ ...cell })),\n    populationGroups: model.populationGroups.map(groups => groups.map(group => ({\n      ...group,\n      attitudes: { ...group.attitudes },\n    }))),\n    neighbors: model.neighbors.map(neighbors => [...neighbors]),\n    regions: [...model.regions],\n    policy: {\n      ...model.policy,\n      spending: { ...model.policy.spending },\n      subsidies: { ...model.policy.subsidies },\n      laws: { ...model.policy.laws },\n    },\n    localSubsidies: model.localSubsidies.map(subsidy => ({\n      ...subsidy,\n      scope: subsidy.scope.kind === 'cells'\n        ? { ...subsidy.scope, ids: [...subsidy.scope.ids] }\n        : { ...subsidy.scope },\n    })),\n    budget: { ...model.budget },\n  };\n}\n\nfunction cloneGameForStep(game: Game): Game {\n  return {\n    ...game,\n    model: cloneModel(game.model),\n    causes: [...game.causes],\n    articles: [...game.articles],\n    history: [...game.history],\n    provenance: { ...game.provenance },\n    lastEvents: { ...game.lastEvents },\n  };\n}\n"""
+          if new in text:
+              print('clone optimization already applied')
+          elif old not in text:
+              raise SystemExit('cloneGameForStep shape changed; refusing blind patch')
+          else:
+              path.write_text(text.replace(old, new, 1))
+          PY
+          npx tsc --noEmit
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/sim/engine.ts
+          git commit -m "Use typed model clone for simulation steps"
+          git push origin HEAD:${{ github.head_ref }}
