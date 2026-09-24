@@ -1,0 +1,19 @@
+name: Long-run divergence probe
+
+on:
+  push:
+    branches: [archetypes]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: archetypes
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npx tsx scripts/long-run-divergence.ts
