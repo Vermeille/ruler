@@ -1,0 +1,33 @@
+name: One-shot scenario contract recalibration
+
+on:
+  push:
+    branches: [archetypes]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: archetypes
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: python scripts/recalibrate-scenario-contracts.py
+      - run: npm test
+      - run: npm run build
+      - name: Commit validated scenario contracts
+        run: |
+          rm scripts/recalibrate-scenario-contracts.py .github/workflows/scenario-contracts-codemod.yml
+          rm -f scripts/behavior-probe.ts .github/workflows/behavior-probe.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Recalibrate scenario contracts around mechanisms"
+          git push origin HEAD:archetypes
