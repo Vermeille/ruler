@@ -210,7 +210,7 @@ Keyed stochastic families include violent crime, sports festivals and regional d
 
 ### Human event experience — `population.event-experience` — mapxel → people
 
-A companion rule translates the exact same stochastic outcome into resident wellbeing changes. It shares `randomNamespace: 'stories.events'`. Its same-phase `after: ['stories.events']` is for event/provenance ordering only, not write visibility.
+A companion rule translates the exact same stochastic outcome into resident wellbeing changes. It shares `randomNamespace: 'stories.events'`. The two rules read the same phase-start state and do not require an `after` dependency. Event-linked population provenance is resolved at phase commit, so bookkeeping does not create a false data dependency between the two arrows.
 
 ## Population settlement
 
