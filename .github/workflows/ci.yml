@@ -10,6 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  emergence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - name: Run emergent behavior micro-simulations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run simulate:emergence 2>&1 | tee emergent-sim-output.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emergence-results
+          path: emergent-sim-output.txt
+          if-no-files-found: ignore
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -21,11 +42,6 @@ jobs:
       - run: npm install
       - name: Check behavior specifications
         run: npm run check:specs
-      - name: Run emergent behavior micro-simulations
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run simulate:emergence 2>&1 | tee emergent-sim-output.txt
       - name: Run unit tests
         shell: bash
         run: |
@@ -40,6 +56,5 @@ jobs:
           name: ci-results
           path: |
             unit-test-output.txt
-            emergent-sim-output.txt
             test-results/
           if-no-files-found: ignore
