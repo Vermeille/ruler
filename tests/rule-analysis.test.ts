@@ -8,25 +8,34 @@ import { createGame } from '../src/sim/world';
 
 function analysisFor(ruleId: string) {
   let game = createGame('causal-lens-test', 18, 14, 48);
-  if (ruleId === 'population.migration') game = step(step(game));
+  if (ruleId === 'population.migration' || ruleId === 'population.migration-cash') {
+    game = step(step(game));
+  }
   const trace = traceStep(game);
   const phase = trace.phases.find(candidate => (
     candidate.rules.some(rule => rule.id === ruleId)
   ));
   assert.ok(phase, `missing phase for ${ruleId}`);
+  const tracedRule = phase.rules.find(rule => rule.id === ruleId)!;
   const analysis = analyzeRule(game, phase, ruleId);
   assert.ok(analysis, `missing analysis for ${ruleId}`);
-  return { game, phase, analysis };
+  return { game, phase, tracedRule, analysis };
 }
 
 test('causal analysis discovers actual reads and outputs for stochastic, spatial, and national rules', () => {
-  const production = analysisFor('economy.production').analysis;
+  const productionResult = analysisFor('economy.production');
+  const production = productionResult.analysis;
+  assert.equal(productionResult.tracedRule.direction, 'people-to-mapxel');
   assert.ok(production.inputs.some(input => input.key === 'random.weather'));
-  assert.ok(production.inputs.some(input => input.key === 'cell.employment'));
+  assert.ok(production.inputs.some(input => input.key.startsWith('population.')),
+    'production should expose actual people-derived inputs rather than cell.employment');
+  assert.ok(!production.inputs.some(input => input.key === 'cell.employment'));
   assert.ok(production.outputs.some(output => output.key === 'delta.food'));
   assert.ok(production.jacobian.length > 0);
 
-  const migration = analysisFor('population.migration').analysis;
+  const migrationResult = analysisFor('population.migration');
+  const migration = migrationResult.analysis;
+  assert.equal(migrationResult.tracedRule.direction, 'mapxel-to-people');
   for (const input of [
     'population.wellbeing',
     'population.wealth',
@@ -38,8 +47,12 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
     assert.ok(migration.inputs.some(candidate => candidate.key === input), `migration should read ${input}`);
   }
   assert.ok(migration.outputs.some(output => output.key === 'population.transfer'));
-  assert.ok(migration.outputs.some(output => output.key === 'transfer.cash'));
+  assert.ok(!migration.outputs.some(output => output.key === 'transfer.cash'));
   assert.ok(migration.footprintFlows.length > 0);
+
+  const migrationCashResult = analysisFor('population.migration-cash');
+  assert.equal(migrationCashResult.tracedRule.direction, 'people-to-mapxel');
+  assert.ok(migrationCashResult.analysis.outputs.some(output => output.key === 'transfer.cash'));
 
   const fiscal = analysisFor('state.services').analysis;
   assert.ok(fiscal.inputs.some(input => input.category === 'budget' || input.category === 'global'));
@@ -105,6 +118,12 @@ test('every current simulation rule can be explained without mutating the game',
       assert.ok(analysis, `analysis missing for ${rule.id}`);
       assert.equal(analysis.ruleId, rule.id);
       assert.equal(analysis.phase, phase.phase);
+      assert.ok([
+        'mapxel-to-mapxel',
+        'mapxel-to-people',
+        'people-to-mapxel',
+        'people-to-people',
+      ].includes(rule.direction));
       const structuralReads = analysis.structuralInputs.reduce((sum, input) => sum + input.reads, 0);
       assert.ok(analysis.totalReads + structuralReads > 0, `${rule.id} should expose at least one input`);
       assert.ok(analysis.analyzedReads <= 72, `${rule.id} should respect the analysis budget`);
