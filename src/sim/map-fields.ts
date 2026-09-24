@@ -1,11 +1,11 @@
 import type { MutableField } from './types';
 
-export type MapxelResource = 'food' | 'materials' | 'population';
+export type MapxelResource = 'food' | 'materials';
 
 export type MapxelFieldSpec = {
   min?: number;
   max?: number;
-  /** Whether rules may write this field with a delta effect. Cash moves through transfers instead. */
+  /** Whether rules may write this field with a delta effect. Cash and population use dedicated effects. */
   delta: boolean;
   /** Negative deltas to conserved resources are scaled to phase-start availability. */
   resource?: MapxelResource;
@@ -17,7 +17,7 @@ export type MapxelFieldSpec = {
  * Adding a mutable numeric Mapxel field makes this exhaustive registry a compiler-enforced task.
  */
 export const MAPXEL_FIELDS = {
-  population: { min: 0, delta: true, resource: 'population' },
+  population: { min: 0, delta: false },
   cash: { min: 0, delta: false },
   food: { min: 0, delta: true, resource: 'food' },
   materials: { min: 0, delta: true, resource: 'materials' },
