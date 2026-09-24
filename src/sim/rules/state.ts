@@ -5,6 +5,7 @@ import { resolveStepCache } from '../step-cache';
 import { SECTORS, type Effect, type Rule } from '../types';
 import { isLand } from './helpers';
 
+// [I] FISCAL-TAX1
 export const taxationRule: Rule = {
   id: 'state.taxation',
   direction: 'mapxel-to-mapxel',
@@ -45,6 +46,8 @@ export const taxationRule: Rule = {
   },
 };
 
+// [I] FISCAL-INTEREST1
+// [I] FISCAL-BORROW1
 export const financingRule: Rule = {
   id: 'state.financing',
   direction: 'mapxel-to-mapxel',
@@ -77,6 +80,10 @@ export const financingRule: Rule = {
   },
 };
 
+// [I] FISCAL-INTEREST1
+// [I] FISCAL-FUNDING1
+// [I] FISCAL-SPENDING1
+// [I] FISCAL-REPAY1
 export const fiscalRule: Rule = {
   id: 'state.services',
   direction: 'mapxel-to-mapxel',
