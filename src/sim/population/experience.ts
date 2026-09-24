@@ -40,6 +40,15 @@ function livedWellbeing(
 }
 
 /** Environment and circumstances change people; time progression belongs to population aging. */
+// [I] EXPERIENCE-WELLBEING1
+// [I] EXPERIENCE-WEALTHBUFFER1
+// [I] EXPERIENCE-INCOME1
+// [I] EXPERIENCE-WEALTH1
+// [I] EXPERIENCE-HEALTH1
+// [I] EXPERIENCE-EDUCATION1
+// [I] EXPERIENCE-APPROVAL1
+// [I] EXPERIENCE-ENVIRONMENTALISM1
+// [I] EXPERIENCE-LIBERTY1
 export const populationExperienceRule: Rule = {
   id: 'population.experience',
   direction: 'mapxel-to-people',
@@ -127,6 +136,8 @@ export const populationExperienceRule: Rule = {
 };
 
 /** Some attitudes drift from a person's own lived state even without a new place stimulus. */
+// [I] ATTITUDE-SOLIDARITY1
+// [I] ATTITUDE-TRADITIONALISM1
 export const populationInternalAttitudesRule: Rule = {
   id: 'population.internal-attitudes',
   direction: 'people-to-people',
