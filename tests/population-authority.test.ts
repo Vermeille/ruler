@@ -20,6 +20,10 @@ const effects = (rule: Rule, g: Game, draw = 0.5): Effect[] => rule.run({
   random: () => draw,
   lastEvents: {},
 });
+const projectedHumanFields = new Set([
+  'employment', 'happiness', 'approval', 'children', 'seniors',
+  ...SECTORS,
+]);
 
 test('population aggregation makes groups authoritative over social and labor mapxel projections', () => {
   const g = game();
@@ -42,10 +46,25 @@ test('population aggregation makes groups authoritative over social and labor ma
   }
 });
 
+test('only population projection writes cached human mapxel fields in the default engine', () => {
+  const g = game();
+  g.model.tick = 12;
+  for (const rule of defaultRules) {
+    for (const draw of [0, 0.5, 0.999]) {
+      for (const effect of effects(rule, g, draw)) {
+        if (effect.kind !== 'delta' || !projectedHumanFields.has(effect.field)) continue;
+        assert.equal(rule.id, 'population.aggregate',
+          `${rule.id} directly writes projected human field ${effect.field}`);
+      }
+    }
+  }
+});
+
 test('default engine no longer runs the aggregate labor-share adaptation rule', () => {
   assert.ok(!defaultRules.some(rule => rule.id === 'economy.labor'));
   assert.ok(defaultRules.some(rule => rule.id === 'population.retraining'));
   assert.ok(defaultRules.some(rule => rule.id === 'population.aggregate'));
+  assert.equal(populationAggregationRule.phase, 'projection');
 });
 
 test('employment transitions start from population groups, not the stale mapxel employment projection', () => {
@@ -102,7 +121,6 @@ test('migration emerges from individual group circumstances rather than one prec
   first.income = second.income = 1;
 
   Object.assign(from, {
-    happiness: 0.3,
     foodSecurity: 0.55,
     price: 2,
     crime: 0.35,
@@ -115,7 +133,6 @@ test('migration emerges from individual group circumstances rather than one prec
     const neighbor = g.model.cells[neighborId];
     if (neighbor.biome === 'water' || neighbor.id === to.id) continue;
     Object.assign(neighbor, {
-      happiness: 0.1,
       foodSecurity: 0.2,
       price: 4,
       crime: 0.7,
@@ -124,9 +141,9 @@ test('migration emerges from individual group circumstances rather than one prec
       education: 0.3,
       output: neighbor.population,
     });
+    for (const group of g.model.populationGroups[neighbor.id]) group.wellbeing = 0.1;
   }
   Object.assign(to, {
-    happiness: 0.85,
     foodSecurity: 1,
     price: 0.8,
     crime: 0.02,
@@ -135,6 +152,7 @@ test('migration emerges from individual group circumstances rather than one prec
     education: 0.9,
     output: to.population * 8,
   });
+  for (const group of g.model.populationGroups[to.id]) group.wellbeing = 0.85;
   g.model.tick = 3;
 
   // Cohort actions are stochastically rounded to person-scale units. Average deterministic
