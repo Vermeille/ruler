@@ -7,7 +7,7 @@ import { forecastBudget } from '../src/sim/policy';
 import {
   consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
   migrationRule, populationAggregationRule, populationCrimeRule, populationDemographicsRule,
-  populationExperienceRule, productionRule, societyRule, taxationRule, tradeRule,
+  populationEmploymentRule, populationExperienceRule, productionRule, societyRule, taxationRule, tradeRule,
 } from '../src/sim/rules';
 import type { Effect, Game, Mapxel, MutableField, Rule } from '../src/sim/types';
 
@@ -219,8 +219,8 @@ test('a wage floor reduces viable service firms and actual group employment acco
   assert.ok(delta(effects(marketRule, ruled), c.id, 'businessHealth') < delta(effects(marketRule, baseline), c.id, 'businessHealth') - .03,
     'service firms with insufficient receipts contract');
 
-  const baselineLosses = employmentLosses(effects(societyRule, baseline));
-  const ruledEffects = effects(societyRule, ruled);
+  const baselineLosses = employmentLosses(effects(populationEmploymentRule, baseline));
+  const ruledEffects = effects(populationEmploymentRule, ruled);
   const ruledLosses = employmentLosses(ruledEffects);
   assert.ok(ruledLosses > baselineLosses,
     `the wage floor should eliminate more actual jobs: ${baselineLosses} → ${ruledLosses}`);
