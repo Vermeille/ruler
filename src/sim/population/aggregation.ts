@@ -126,6 +126,8 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
  * Compatibility projection for UI/save consumers that still read human mapxel fields.
  * Causal rules should use population groups or the step cache instead.
  */
+// [I] PROJECTION-SOCIAL1
+// [I] PROJECTION-WORKFORCE1
 export const populationAggregationRule: Rule = {
   id: 'population.aggregate',
   direction: 'people-to-mapxel',
