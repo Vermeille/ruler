@@ -4,6 +4,7 @@ import { changeToward, delta, isLand, read } from './helpers';
 import { viableJobs } from './wages';
 import { archetypeAt } from '../population/archetypes';
 import { averageWealthOf, employmentOf } from '../population/selectors';
+import { quantizeCohortFlow } from '../population/resolution';
 
 type SectorViability = Record<Sector, number>;
 
@@ -281,7 +282,7 @@ export const migrationRule: Rule = {
   id: 'society.migration',
   phase: 'migration',
   description: 'Each quarter, every adult group evaluates nearby places through its own needs, job, wealth, mobility, attachment, and lived conditions.',
-  run({ model }) {
+  run({ model, random }) {
     if (model.tick % 3 !== 0) return [];
     const effects: Effect[] = [];
     const culture = clamp(0.5 + model.policy.spending.culture * model.budget.funding);
@@ -318,7 +319,13 @@ export const migrationRule: Rule = {
           * hardship;
         const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
         const rate = Math.min(0.009, bestAdvantage * 0.021 * propensity) * freedomMultiplier;
-        const amount = group.count * rate;
+        const desiredAmount = group.count * rate;
+        if (desiredAmount <= 1e-9) continue;
+        const amount = quantizeCohortFlow(
+          desiredAmount,
+          group.count,
+          random(from.id, `migration-cohort:${group.id}:${bestCell.id}`),
+        );
         if (amount <= 1e-9) continue;
 
         effects.push({
