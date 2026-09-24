@@ -11,6 +11,7 @@ let game = enact(createGame('alder-42', 18, 14, 48), {
 });
 
 const groupCount = () => game.model.populationGroups.reduce((sum, groups) => sum + groups.length, 0);
+const profileMonths = new Set([12, 24, 48]);
 
 function cloneModel(model: Model): Model {
   return {
@@ -108,8 +109,8 @@ bench('structuredClone(model)', () => { structuredClone(game.model); }, 20);
 bench('typedClone(model)', () => { cloneModel(game.model); }, 20);
 bench('deepFreeze(structuredClone(model))', () => { deepFreeze(structuredClone(game.model)); }, 20);
 
-for (let month = 1; month <= 12; month += 1) {
-  (globalThis as typeof globalThis & { __SIM_PROFILE__?: boolean }).__SIM_PROFILE__ = month === 12;
+for (let month = 1; month <= 48; month += 1) {
+  (globalThis as typeof globalThis & { __SIM_PROFILE__?: boolean }).__SIM_PROFILE__ = profileMonths.has(month);
   const start = performance.now();
   game = step(game, defaultRules);
   const elapsed = performance.now() - start;
@@ -120,11 +121,9 @@ for (let month = 1; month <= 12; month += 1) {
     nextGroupId: game.model.nextPopulationGroupId,
     causes: game.causes.length,
   }));
-  if (month % 3 === 0) {
-    reportGroupSizes();
-    reportMigrationAmounts();
-  }
-  if (month === 11) {
+  if (month % 6 === 0) reportGroupSizes();
+  if (month % 12 === 0) reportMigrationAmounts();
+  if (month === 47) {
     bench('late structuredClone(model)', () => { structuredClone(game.model); }, 10);
     bench('late typedClone(model)', () => { cloneModel(game.model); }, 10);
   }
