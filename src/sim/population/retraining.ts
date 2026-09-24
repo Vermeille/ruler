@@ -78,6 +78,8 @@ function bestSector(
 }
 
 /** New adults choose an occupation only after life-stage transition, using local opportunity. */
+// [I] OCCUPATION-ENTRY1
+// [I] OCCUPATION-OPPORTUNITY1
 export const entryOccupationRule: Rule = {
   id: 'population.entry-occupation',
   direction: 'mapxel-to-people',
@@ -108,6 +110,10 @@ export const entryOccupationRule: Rule = {
 };
 
 /** Occupational adaptation is a change in circumstance, never a change of archetype. */
+// [I] OCCUPATION-OPPORTUNITY1
+// [I] RETRAINING-CADENCE1
+// [I] RETRAINING-EMPLOYED1
+// [I] RETRAINING-UNEMPLOYED1
 export const retrainingRule: Rule = {
   id: 'population.retraining',
   direction: 'mapxel-to-people',
