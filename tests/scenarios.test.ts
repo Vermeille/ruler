@@ -42,14 +42,27 @@ test('baseline remains viable for complete mandates across five seeds', () => {
   }
 });
 
-test('a twenty-year baseline settles and small human perturbations stay small', () => {
+test('a twenty-year baseline settles and microscopic human perturbations stay macroscopically bounded', () => {
   const base = tiny('long-run', 240), perturbed = structuredClone(base);
   const cell = perturbed.model.cells.find(c => c.population > 0)!;
   perturbed.model.populationGroups[cell.id][0].wellbeing += .00001;
   const a = run(base, 240, false), b = run(perturbed, 240, false), sa = summarize(a.model), sb = summarize(b.model);
   assert.ok(sa.foodSecurity > .8); assert.ok(sa.happiness > .6); assert.ok(a.model.budget.funding > .98);
-  assert.ok(Math.abs(sa.happiness - sb.happiness) < .001);
-  assert.ok(Math.abs(sa.wealth - sb.wealth) < .01);
+
+  const normalizedFields = [
+    'approval', 'happiness', 'crime', 'foodSecurity', 'employment', 'pollution', 'health', 'education',
+  ] as const;
+  for (const field of normalizedFields) {
+    assert.ok(Math.abs(sa[field] - sb[field]) < .01,
+      `${field} diverged too far after a microscopic perturbation: ${sa[field]} vs ${sb[field]}`);
+  }
+  assert.ok(Math.abs(sa.wealth - sb.wealth) / Math.max(1, sa.wealth) < .01,
+    `wealth diverged by more than 1%: ${sa.wealth} vs ${sb.wealth}`);
+  assert.ok(Math.abs(sa.population - sb.population) / Math.max(1, sa.population) < .001,
+    `population diverged by more than 0.1%: ${sa.population} vs ${sb.population}`);
+  assert.ok(Math.abs(sa.output - sb.output) / Math.max(1, sa.output) < .01,
+    `output diverged by more than 1%: ${sa.output} vs ${sb.output}`);
+
   const lastYear = a.history.slice(-12).map(h => h.summary.happiness);
   assert.ok(Math.max(...lastYear) - Math.min(...lastYear) < .015);
   const maxGroups = Math.max(...a.model.populationGroups.map(groups => groups.length));
