@@ -111,6 +111,10 @@ function employmentTransitions(
 }
 
 /** Firms create job capacity in the world; actual residents gain or lose employment here. */
+// [I] EMPLOYMENT-WAGE1
+// [I] EMPLOYMENT-DEMAND1
+// [I] EMPLOYMENT-LAYOFF1
+// [I] EMPLOYMENT-HIRING1
 export const populationEmploymentRule: Rule = {
   id: 'population.employment',
   direction: 'mapxel-to-people',
