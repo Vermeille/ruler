@@ -1,32 +1,6 @@
 import { clamp } from '../math';
-import { SECTORS, type DeepReadonly, type Effect, type PopulationGroup, type Rule } from '../types';
+import type { DeepReadonly, Effect, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
-
-/** Life stages change only after the monthly age increment has settled. */
-export const populationAgingRule: Rule = {
-  id: 'population.aging',
-  phase: 'aging',
-  description: 'Children enter the working-age population at 18; adults retire at 65.',
-  run({ model }) {
-    const effects: Effect[] = [];
-    model.populationGroups.forEach((groups, cell) => {
-      for (const group of groups) {
-        if (group.lifeStage === 'child' && group.age >= 18) {
-          const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
-          const occupation = SECTORS.reduce((best, sector) =>
-            model.cells[cell][sector] * archetype.affinities[sector]
-              > model.cells[cell][best] * archetype.affinities[best] ? sector : best, SECTORS[0]);
-          effects.push({ kind: 'population-transition', cell, group: group.id, amount: group.count,
-            transition: { lifeStage: 'adult', occupation, employed: false } });
-        } else if (group.lifeStage === 'adult' && group.age >= 65) {
-          effects.push({ kind: 'population-transition', cell, group: group.id, amount: group.count,
-            transition: { lifeStage: 'senior', occupation: null, employed: false } });
-        }
-      }
-    });
-    return effects;
-  },
-};
 
 function mortalityWeight(group: DeepReadonly<PopulationGroup>, foodSecurity: number): number {
   const ageRisk = group.lifeStage === 'senior'
