@@ -1,8 +1,16 @@
 import { assertModel } from './engine';
+import { MUTABLE_FIELDS, isMutableMapxelField, validMapxelFieldValue } from './map-fields';
 import { validateAction } from './policy';
+import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
+import {
+  POPULATION_STATE_FIELD_NAMES,
+  POPULATION_STATE_FIELDS,
+  POPULATION_TRANSITION_FIELDS,
+  validPopulationStateValue,
+} from './population/fields';
+import { generatePopulation } from './population/generate';
 import {
   LAWS,
-  MUTABLE_FIELDS,
   SECTORS,
   SERVICES,
   type Game,
@@ -16,6 +24,11 @@ const MAX_CAUSES = 150_000;
 const MAX_ARTICLES = 10_000;
 const MAX_ACTIONS = 10_000;
 const SAVE_ERROR = 'This save is incomplete, corrupted, or from an unsupported version.';
+const POPULATION_OBSERVATION_FIELDS = new Set<string>([
+  'count',
+  'employed',
+  ...POPULATION_STATE_FIELD_NAMES,
+]);
 
 function fail(): never {
   throw new Error(SAVE_ERROR);
@@ -42,7 +55,8 @@ function parseSave(text: string): Record<string, unknown> {
     return fail();
   }
 
-  if (!isRecord(data) || (data.version !== 1 && data.version !== 2 && data.version !== 3) || !isRecord(data.model)) {
+  if (!isRecord(data) || typeof data.version !== 'number'
+    || ![1, 2, 3, 4].includes(data.version) || !isRecord(data.model)) {
     return fail();
   }
 
@@ -75,6 +89,15 @@ function migrateSave(data: Record<string, unknown>): void {
     if ('minimumWage' in model.policy) return fail();
     model.policy.minimumWage = 0;
     data.version = 3;
+  }
+
+  if (data.version === 3) {
+    if (!Array.isArray(model.cells) || !isSafeString(model.seed)) return fail();
+    const generated = generatePopulation(model.seed, model.cells as Mapxel[]);
+    model.populationGroups = generated.groups;
+    model.nextPopulationGroupId = generated.nextId;
+    model.archetypeModelVersion = ARCHETYPE_MODEL_VERSION;
+    data.version = 4;
   }
 }
 
@@ -120,8 +143,9 @@ function validateCell(saved: unknown, base: Mapxel): void {
   if (!isRecord(saved)) return fail();
 
   for (const field of Object.keys(base) as (keyof Mapxel)[]) {
-    if (MUTABLE_FIELDS.includes(field as never)) {
-      if (!isFiniteNumber(saved[field])) return fail();
+    const fieldName = String(field);
+    if (isMutableMapxelField(fieldName)) {
+      if (!validMapxelFieldValue(fieldName, saved[field], 1e-6)) return fail();
     } else if (saved[field] !== base[field]) {
       return fail();
     }
@@ -139,6 +163,36 @@ function validateCells(model: Record<string, unknown>, original: Game): void {
   const cells = model.cells as unknown[];
   for (let index = 0; index < cells.length; index += 1) {
     validateCell(cells[index], original.model.cells[index]);
+  }
+}
+
+function validatePopulation(model: Record<string, unknown>, original: Game): void {
+  if (model.archetypeModelVersion !== ARCHETYPE_MODEL_VERSION
+    || !Number.isSafeInteger(model.nextPopulationGroupId)
+    || !Array.isArray(model.populationGroups)
+    || model.populationGroups.length !== original.model.cells.length) return fail();
+  let count = 0;
+  for (const cellGroups of model.populationGroups) {
+    if (!Array.isArray(cellGroups)) return fail();
+    count += cellGroups.length;
+    if (count > 2_000_000) return fail();
+    for (const group of cellGroups) {
+      if (!isRecord(group) || !isRecord(group.attitudes)) return fail();
+      const invalidState = POPULATION_STATE_FIELD_NAMES.some(field => {
+        const spec = POPULATION_STATE_FIELDS[field];
+        const value = spec.storage === 'attitudes'
+          ? (group.attitudes as Record<string, unknown>)[field]
+          : group[field];
+        return !validPopulationStateValue(field, value, 1e-9);
+      });
+      if (!Number.isSafeInteger(group.id)
+        || !Number.isInteger(group.archetype)
+        || !isFiniteNumber(group.count)
+        || invalidState
+        || !POPULATION_TRANSITION_FIELDS.employed.valid(group.employed)
+        || !POPULATION_TRANSITION_FIELDS.lifeStage.valid(group.lifeStage)
+        || !POPULATION_TRANSITION_FIELDS.occupation.valid(group.occupation)) return fail();
+    }
   }
 }
 
@@ -247,11 +301,18 @@ function tickValidator(currentTick: number): (tick: unknown) => boolean {
 function validateObservation(
   observation: unknown,
   isCell: (id: unknown) => boolean,
+  nextGroupId: number,
 ): void {
   if (
     !isRecord(observation)
     || (observation.cell !== undefined && !isCell(observation.cell))
-    || !MUTABLE_FIELDS.includes(observation.field as never)
+    || (observation.group === undefined
+      ? !MUTABLE_FIELDS.includes(observation.field as never)
+      : (!Number.isSafeInteger(observation.group)
+        || !isCell(observation.cell)
+        || Number(observation.group) < 1
+        || Number(observation.group) >= nextGroupId
+        || !POPULATION_OBSERVATION_FIELDS.has(String(observation.field))))
     || !isFiniteNumber(observation.value)
     || !isSafeString(observation.label)
   ) {
@@ -263,6 +324,7 @@ function validateCauses(
   causes: unknown[],
   isCell: (id: unknown) => boolean,
   isTick: (tick: unknown) => boolean,
+  nextGroupId: number,
 ): Set<string> {
   const knownIds = new Set<string>();
 
@@ -286,7 +348,7 @@ function validateCauses(
     }
 
     for (const observation of cause.observations) {
-      validateObservation(observation, isCell);
+      validateObservation(observation, isCell, nextGroupId);
     }
 
     knownIds.add(cause.id);
@@ -389,7 +451,7 @@ function validateReferences(
 function summaryValidator(original: Game): (value: unknown) => boolean {
   const keys = Object.keys(original.initial);
   return value => isRecord(value)
-    && keys.every(key => isFiniteNumber(value[key]) && Number(value[key]) >= 0);
+    && keys.every(key => isFiniteNumber(value[key]) && Number(value[key]) >= -1e-6);
 }
 
 function validateHistory(data: Record<string, unknown>, original: Game): void {
@@ -423,6 +485,7 @@ export function deserialize(text: string): Game {
   validateTimeline(data, model);
   validateWorldTopology(model, original);
   validateCells(model, original);
+  validatePopulation(model, original);
 
   const game = data as unknown as Game;
   validatePolicy(model, game);
@@ -430,7 +493,8 @@ export function deserialize(text: string): Game {
 
   const isCell = cellValidator(game);
   const isTick = tickValidator(Number(model.tick));
-  const knownCauseIds = validateCauses(data.causes as unknown[], isCell, isTick);
+  const knownCauseIds = validateCauses(data.causes as unknown[], isCell, isTick,
+    Number(model.nextPopulationGroupId));
 
   validateArticles(data.articles as unknown[], knownCauseIds, isCell, isTick);
   validateActionLog(data.actionLog as unknown[], game, knownCauseIds, isTick);

@@ -1,5 +1,5 @@
 import { clamp } from '../math';
-import { subsidyFor } from '../policy';
+import { resolveStepCache } from '../step-cache';
 import {
   SECTORS,
   type DeepReadonly,
@@ -13,32 +13,51 @@ import { unitOutput, viableJobs } from './wages';
 
 export const productionRule: Rule = {
   id: 'economy.production',
+  direction: 'people-to-mapxel',
   phase: 'production',
-  description: 'Land, labor, health, and seasonal weather produce food and materials. Exports bring in money.',
-  run({ model, random }) {
+  description: 'Settled workers, their health, land, and seasonal weather produce food, materials, and output.',
+  run({ model, cache, random }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
+      const people = peopleCache.peopleByCell[cell.id];
       const weather = 0.96
         + random(cell.id, 'weather') * 0.08
         + Math.sin(model.tick * Math.PI / 6) * 0.09;
-      const labor = cell.employment * (0.65 + 0.35 * cell.health);
-      const food = cell.population
-        * cell.agriculture
+      const labor = people.employmentRate * (0.65 + 0.35 * people.averageHealth);
+      const food = people.population
+        * people.occupationShares.agriculture
         * (3 + 2 * cell.fertility)
         * labor
         * weather
         * (1 - cell.pollution * 0.18)
         * (1 - cell.waterStress * 0.6);
-      const materials = cell.population
-        * cell.manufacturing
+      const materials = people.population
+        * people.occupationShares.manufacturing
         * (1.4 + cell.minerals)
         * labor
         * (model.policy.laws.cleanAir ? 0.9 : 1);
-      const output = cell.population * labor * SECTORS.reduce(
-        (sum, sector) => sum + cell[sector] * unitOutput(cell, model, sector), 0,
+      const output = people.population * labor * SECTORS.reduce(
+        (sum, sector) => sum + people.occupationShares[sector] * unitOutput(cell, model, sector), 0,
       );
+      const foodEvidence: Evidence | undefined = food < people.population
+        ? {
+            title: `${cell.name}: local harvest falls short of monthly needs`,
+            detail: `Local farms produced ${food.toFixed(0)} units for ${people.population.toFixed(0)} residents. The settled worker mix and employment level combine with worker health, fertility, weather, pollution, and water stress to determine the harvest.`,
+            cells: [cell.id],
+            reads: [
+              read(cell, 'pollution', 'Pollution pressure'),
+              read(cell, 'waterStress', 'Water stress'),
+            ],
+            parents: model.populationGroups[cell.id].flatMap(group => [
+              `group:${group.id}:occupation`,
+              `group:${group.id}:employed`,
+              `group:${group.id}:health`,
+            ]),
+          }
+        : undefined;
 
       return [
-        delta(cell, 'food', food),
+        delta(cell, 'food', food, foodEvidence),
         delta(cell, 'materials', materials),
         delta(cell, 'output', output - cell.output),
         delta(cell, 'foodMade', food - cell.foodMade),
@@ -58,9 +77,10 @@ export const productionRule: Rule = {
 function tradeEvidence(
   seller: DeepReadonly<Mapxel>,
   buyer: DeepReadonly<Mapxel>,
+  buyerPopulation: number,
   amount: number,
 ): Evidence | undefined {
-  if (buyer.foodSecurity >= 0.92 || amount <= buyer.population * 0.1) {
+  if (buyer.foodSecurity >= 0.92 || amount <= buyerPopulation * 0.1) {
     return undefined;
   }
 
@@ -69,7 +89,6 @@ function tradeEvidence(
     detail: `${amount.toFixed(0)} units offered along a neighboring road. Settlement is limited by available stock and cash. Transport links determine how quickly shortages can be relieved.`,
     cells: [buyer.id, seller.id],
     reads: [
-      read(seller, 'agriculture', 'Supplier farm employment'),
       read(buyer, 'foodSecurity', 'Buyer food security'),
       read(buyer, 'infrastructure', 'Buyer transport access'),
     ],
@@ -78,26 +97,34 @@ function tradeEvidence(
 
 export const tradeRule: Rule = {
   id: 'economy.neighbor-trade',
+  direction: 'mapxel-to-mapxel',
   phase: 'trade',
-  description: 'Neighbors exchange stocks and money at a midpoint price, limited by roads, inventory, and buyer cash.',
-  run({ model }) {
+  description: 'Neighboring places exchange stocks and money according to inventories, prices, and transport capacity.',
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
 
     for (const a of model.cells.filter(isLand)) {
+      const aPopulation = peopleCache.peopleByCell[a.id].population;
+      if (aPopulation <= 0) continue;
       for (const neighborId of model.neighbors[a.id]) {
         if (neighborId <= a.id) continue;
 
         const b = model.cells[neighborId];
+        const bPopulation = peopleCache.peopleByCell[b.id].population;
+        if (bPopulation <= 0) continue;
         for (const resource of ['food', 'materials'] as const) {
-          const aStock = a[resource] / a.population;
-          const bStock = b[resource] / b.population;
+          const aStock = a[resource] / aPopulation;
+          const bStock = b[resource] / bPopulation;
           const [seller, buyer] = aStock > bStock ? [a, b] : [b, a];
+          const sellerPopulation = seller.id === a.id ? aPopulation : bPopulation;
+          const buyerPopulation = buyer.id === a.id ? aPopulation : bPopulation;
           const roadCapacity = 0.18 + 0.55 * Math.min(a.infrastructure, b.infrastructure);
           const equalizingAmount = Math.abs(aStock - bStock)
-            * a.population
-            * b.population
-            / (a.population + b.population);
-          const amount = Math.min(equalizingAmount * roadCapacity, seller.population * 0.85);
+            * aPopulation
+            * bPopulation
+            / (aPopulation + bPopulation);
+          const amount = Math.min(equalizingAmount * roadCapacity, sellerPopulation * 0.85);
 
           if (amount < 0.01) continue;
 
@@ -110,7 +137,7 @@ export const tradeRule: Rule = {
             amount,
             price,
             evidence: resource === 'food'
-              ? tradeEvidence(seller, buyer, amount)
+              ? tradeEvidence(seller, buyer, buyerPopulation, amount)
               : undefined,
           });
         }
@@ -123,13 +150,16 @@ export const tradeRule: Rule = {
 
 export const consumptionRule: Rule = {
   id: 'economy.households',
+  direction: 'people-to-mapxel',
   phase: 'consumption',
-  description: 'Households eat first; food shortages constrain restaurants. Imports and spoilage prevent unlimited stock accumulation.',
-  run({ model }) {
+  description: 'Residents consume food and private cash; unmet needs become local food insecurity.',
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
-      const need = cell.population;
+      const people = peopleCache.peopleByCell[cell.id];
+      const need = people.population;
       const eaten = Math.min(cell.food, need);
-      const security = eaten / need;
+      const security = need > 0 ? eaten / need : 1;
       const shouldExplainFood = Math.abs(security - cell.foodSecurity) > 0.08
         || (security < 0.85 && model.tick % 6 === 0);
       const foodEvidence = shouldExplainFood
@@ -138,9 +168,7 @@ export const consumptionRule: Rule = {
             detail: `Households could meet ${(security * 100).toFixed(0)}% of this month's food needs. Farms produced ${cell.foodMade.toFixed(0)} units; net neighboring trade was ${cell.foodTraded.toFixed(0)} units.`,
             cells: [cell.id],
             reads: [
-              read(cell, 'agriculture', 'Farm employment share'),
               read(cell, 'food', 'Available food'),
-              read(cell, 'population', 'Residents to feed'),
               read(cell, 'infrastructure', 'Transport access'),
             ],
           }
@@ -148,9 +176,9 @@ export const consumptionRule: Rule = {
       const remainingFood = Math.max(0, cell.food - eaten);
       const materialUse = Math.min(
         cell.materials,
-        cell.population * 0.08 + cell.materials * 0.12,
+        people.population * 0.08 + cell.materials * 0.12,
       );
-      const householdSpending = cell.population * (1.6 + cell.cash / cell.population * 0.04)
+      const householdSpending = people.population * (1.6 + cell.cash / Math.max(people.population, 1e-12) * 0.04)
         + cell.output * 0.09;
 
       return [
@@ -172,11 +200,16 @@ export const consumptionRule: Rule = {
 
 export const marketRule: Rule = {
   id: 'economy.businesses',
+  direction: 'mapxel-to-mapxel',
   phase: 'market',
   description: 'Scarcity changes prices; food, insecurity, and unaffordable payrolls squeeze local businesses.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
-      const supplyRatio = (cell.foodUsed + cell.food / 0.84) / cell.population;
+      const people = peopleCache.peopleByCell[cell.id];
+      const supplyRatio = people.population > 0
+        ? (cell.foodUsed + cell.food / 0.84) / people.population
+        : 2;
       const targetPrice = clamp(
         1
           + (1 - Math.min(2, supplyRatio)) * 1.3
@@ -191,13 +224,12 @@ export const marketRule: Rule = {
             cells: [cell.id],
             reads: [
               read(cell, 'foodSecurity', 'Last measured food security'),
-              read(cell, 'agriculture', 'Farm employment'),
               read(cell, 'food', 'Stock available'),
             ],
           }
         : undefined;
 
-      const serviceJobs = viableJobs(cell, model, 'services');
+      const serviceJobs = viableJobs(cell, model, 'services', people.averageHealth);
       const businessTarget = clamp(
         0.97
           - (1 - cell.foodSecurity) * 0.9
@@ -228,60 +260,6 @@ export const marketRule: Rule = {
         changeToward(cell, 'scarcityPrice', targetPrice, 0.14),
         changeToward(cell, 'businessHealth', businessTarget, 0.15, businessEvidence),
       ];
-    });
-  },
-};
-
-function laborAppealBase(cell: DeepReadonly<Mapxel>): Record<typeof SECTORS[number], number> {
-  return {
-    agriculture: 0.24 + cell.fertility * 0.19,
-    manufacturing: 0.13 + cell.minerals * 0.1,
-    services: 0.36,
-    sports: 0.045 + cell.sportsInterest * 0.06,
-  };
-}
-
-export const adaptationRule: Rule = {
-  id: 'economy.labor',
-  phase: 'adaptation',
-  description: 'Workers slowly shift toward profitable industries. Subsidies attract labor; high food prices pull workers back into farming.',
-  run({ model }) {
-    return model.cells.filter(isLand).flatMap(cell => {
-      const base = laborAppealBase(cell);
-      const returns = {
-        agriculture: (cell.price - 1) * 1.1,
-        manufacturing: cell.education * 0.2 - (model.policy.laws.cleanAir ? 0.08 : 0),
-        services: (cell.businessHealth - 0.85) * 0.8,
-        sports: cell.sportsInterest * 0.25,
-      };
-      const weights = SECTORS.map(sector => {
-        const subsidy = subsidyFor(model, cell, sector) * model.budget.funding * 1.1;
-        const returnSignal = clamp(returns[sector] + subsidy, -2, 4);
-        return base[sector] * Math.exp(returnSignal);
-      });
-      const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-
-      return SECTORS.map((sector, index) => {
-        const target = weights[index] / totalWeight;
-        const amount = (target - cell[sector]) * 0.065;
-        const significant = Math.abs(amount) > 0.0035
-          && (model.tick % 3 === 0 || model.tick === 1);
-        const evidence = significant
-          ? {
-              title: `${cell.name}: workers ${amount > 0 ? 'enter' : 'leave'} ${sector}`,
-              detail: `${Math.abs(amount * cell.population).toFixed(1)} residents' worth of employment shifts ${amount > 0 ? 'into' : 'out of'} ${sector}. Local food prices, business conditions, and relative subsidies determine the new mix.`,
-              cells: [cell.id],
-              reads: [
-                read(cell, 'price', 'Food price signal'),
-                read(cell, 'businessHealth', 'Business viability'),
-                read(cell, 'sportsInterest', 'Demand for sport'),
-              ],
-              parents: SECTORS.map(key => `${cell.id}:subsidy:${key}`),
-            }
-          : undefined;
-
-        return delta(cell, sector, amount, evidence);
-      });
     });
   },
 };

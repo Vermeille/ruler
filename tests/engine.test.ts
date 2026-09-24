@@ -29,7 +29,7 @@ test('keyed random streams and full trajectories are reproducible', () => {
   assert.deepEqual(run(tiny(), 6), run(tiny(), 6, [...defaultRules].reverse()));
 });
 test('dependency validation rejects duplicates, cycles, missing rules, and backward phases', () => {
-  const a: Rule = { id: 'a', phase: 'production', description: '', run: () => [] };
+  const a: Rule = { id: 'a', direction: 'mapxel-to-mapxel', phase: 'production', description: '', run: () => [] };
   assert.throws(() => orderRules([a, a]), /unique/);
   assert.throws(() => orderRules([{ ...a, after: ['missing'] }]), /Missing/);
   assert.throws(() => orderRules([{ ...a, after: ['b'] }, { ...a, id: 'b', after: ['a'] }]), /cycle/);
@@ -37,9 +37,9 @@ test('dependency validation rejects duplicates, cycles, missing rules, and backw
 });
 test('a broken extension cannot mutate or partially advance the input game', () => {
   const g = tiny(), original = serialize(g);
-  const malicious: Rule = { id: 'mutation', phase: 'production', description: '', run: ({ model }) => { (model.cells[0] as unknown as { cash: number }).cash = 100; return []; } };
+  const malicious: Rule = { id: 'mutation', direction: 'mapxel-to-mapxel', phase: 'production', description: '', run: ({ model }) => { (model.cells[0] as unknown as { cash: number }).cash = 100; return []; } };
   assert.throws(() => step(g, [malicious]), TypeError); assert.equal(serialize(g), original);
-  const bad: Rule = { id: 'bad', phase: 'events', description: '', run: () => [{ kind: 'delta', cell: g.model.cells.find(c => c.population > 0)!.id, field: 'food', amount: NaN }] };
+  const bad: Rule = { id: 'bad', direction: 'mapxel-to-mapxel', phase: 'events', description: '', run: () => [{ kind: 'delta', cell: g.model.cells.find(c => c.population > 0)!.id, field: 'food', amount: NaN }] };
   assert.throws(() => step(g, [...defaultRules, bad]), /Invalid effect/); assert.equal(serialize(g), original);
 });
 test('simultaneous transfers cannot overspend inventory or double-spend incoming stock', () => {
@@ -176,7 +176,7 @@ test('version-one saves migrate with initially unstressed land', () => {
   delete prior.model.policy.laws.foodPriceControls;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.model.policy.minimumWage, 0);
   assert.ok(restored.model.cells.every(c => c.waterStress === 0));
   assert.ok(restored.model.cells.every(c => c.starvationDeaths === 0));
@@ -189,7 +189,7 @@ test('version-two saves migrate with an unregulated wage floor', () => {
   prior.version = 2;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.model.policy.minimumWage, 0);
 });
 test('enacting food price controls caps posted local prices and survives a save', () => {

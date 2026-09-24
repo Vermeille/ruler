@@ -571,6 +571,40 @@ body:has(.dev-shell) * {
   margin: 8px 0 0;
 }
 
+.population-box {
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid #34454a;
+  border-radius: 8px;
+  background: #172328;
+}
+
+.population-comparison,
+.population-detail div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid #29393d;
+  font-size: 11px;
+}
+
+.population-comparison span:first-child,
+.population-detail dt {
+  color: #9baea8;
+}
+
+.population-comparison span:nth-child(2),
+.population-comparison strong,
+.population-detail dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.population-detail {
+  margin: 10px 0 0;
+}
+
 .account-box dl div {
   display: flex;
   justify-content: space-between;

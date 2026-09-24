@@ -1,224 +1,242 @@
 # Rules and metrics
 
-This document records the rules implemented by the current default simulation and its government-action interface. It describes the fictional model in this repository; its outputs are not real-world forecasts. One tick is one month. Unless stated otherwise, rules below apply to land mapxels and use that phase's input snapshot.
+This file is the compact reference for the current default simulation. The model is fictional; its outputs are not real-world forecasts. One tick is one month.
 
-## Units and state
+For architecture and extension guidance, see [SIMULATION.md](SIMULATION.md). This file focuses on what the default rules currently do.
 
-- A mapxel represents approximately 4 km². Population is a continuous resident count, so demographic change and migration can be fractional.
-- Money is in fictional crowns (`₡`). Each resident needs one food unit per month. Materials are abstract maintenance inputs. `output` is an abstract monthly economic-activity measure, not cash.
-- There are four regions, with zero-based IDs: Northreach (0), The Greenbelt (1), Eastmere (2), Southbank (3). Neighbor relationships are the four orthogonal map directions; there is no separate interregional transport network.
-- Industry shares are fractions for agriculture, manufacturing, services, and sports. On each land mapxel they must sum to 1. Children and seniors are population fractions; the working-age fraction is implicit. Children plus seniors cannot exceed 1.
-- Index-like fields are constrained to [0, 1]. The engine also constrains food prices to [0.4, 5]. Food, materials, population, cash, and public accounts cannot go below zero. `foodTraded` is a signed net-flow accumulator and may be negative.
+## Authority and causal directions
 
-### Cell fields and national metrics
+There are two authoritative mutable domains:
 
-Terrain fields are elevation, fertility, and mineral suitability. The simulation also stores local water stress, cash, food, materials, posted food price, an unconstrained scarcity-price signal, children, seniors, education, health, happiness, approval, crime pressure, pollution, infrastructure, employment, food security, sports interest, the four industry shares, output, food made, food used, net food traded, business health, and starvation deaths during the most recent month.
+- **World/mapxel state**: terrain-adjacent conditions, stocks, prices, pollution, infrastructure, business health, food security, crime pressure, sports interest, public/private cash and other local/world conditions.
+- **People state**: age, life stage, education, occupation, employment status, income, wealth, health, wellbeing, approval, and attitudes on population groups.
 
-National summary metrics are calculated over land mapxels. Let `P = Σᵢ pᵢ` be their total population. For each per-cell indicator `x`, its national summary is the population-weighted mean `Σᵢ(pᵢ xᵢ) / max(1, P)`. This applies to approval, happiness, crime, food security, employment, pollution, health, education, and price. The remaining summary values are:
+Every rule declares exactly one causal direction:
 
-| Metric | Definition |
-| --- | --- |
-| Population | `Σᵢ pᵢ` |
-| Wealth | Total private cell cash divided by `max(1, P)`; crowns per resident |
-| Output | `Σᵢ outputᵢ` per month |
-| Food | `Σᵢ foodᵢ` in stock |
-| Starvation deaths | `Σᵢ starvationDeathsᵢ` during the most recent month |
-| Treasury, debt | Public account balances in crowns |
+```text
+mapxel → mapxel
+mapxel → people
+people → mapxel
+people → people
+```
 
-The UI's “household wellbeing” is the happiness metric. Food needs met is food security. The model does not define a separate composite wellbeing score. Other cell fields, such as infrastructure, sports interest, and business health, are not part of the national `Summary` type.
+The engine mechanically enforces the output side. A rule ending in `people` cannot emit world/resource mutations, and a rule ending in `mapxel` cannot emit population mutations. Reads are intentionally more flexible: cross-domain mechanisms may inspect both people and place context when the formula genuinely needs it.
 
-## Monthly update order
+Human aggregates on mapxels are compatibility projections, not a second social model. `employment`, `happiness`, `approval`, `children`, `seniors`, and the four occupational shares are projected from settled population groups by `population.aggregate` at the end of the tick. Causal rules should read authoritative groups or the immutable step cache instead.
 
-Each phase reads one deeply frozen snapshot and returns proposed effects. The engine settles all proposals for that phase together, validates the resulting model, then takes the next phase's snapshot. Effects within a phase cannot see other effects proposed in that same phase. Tick order:
+At the beginning of each step the engine derives one immutable population summary cache from authoritative groups. It contains population, employment, demographics, weighted human state and occupational shares per mapxel. The same cache is read throughout the month and discarded afterward. It never refreshes mid-step.
 
-1. Production
-2. Neighbor trade
-3. Household consumption
-4. Market adjustment
-5. Taxation
-6. Financing
-7. Fiscal payments
-8. Society and demographics
-9. Migration
-10. Industry adaptation
-11. Stochastic events
+Raw mapxel population changes are not allowed. Migration, births, and deaths operate on population groups, and population settlement updates the cached cell population consistently.
 
-Time advances before the first phase. A default mandate lasts 48 ticks; the supported mandate range is 1–240.
+## Units and bounds
 
-## Implemented monthly rules
+- A mapxel is approximately 4 km².
+- Population is a continuous resident count. Births and deaths may be fractional expected mass; independent discrete cohort choices use person-scale stochastic quantization.
+- Money is fictional crowns (`₡`).
+- Each resident needs one food unit per month.
+- Materials are abstract maintenance/industrial stocks.
+- `output` is monthly economic activity, not cash.
+- Most indices are constrained to `[0, 1]`.
+- Posted food price is constrained to `[0.4, 5]`.
+- Food, materials, population, and ordinary accounts cannot become meaningfully negative.
+- `foodTraded` is a signed monthly net-flow accumulator.
 
-The equations below use values from the phase snapshot. `clamp(x)` means `min(1, max(0, x))`, except where explicit bounds are shown. A target adjustment at rate `r` means `x ← x + r(target − x)`.
+Mutable mapxel field mechanics are defined in `src/sim/map-fields.ts`. Population field mechanics are defined in `src/sim/population/fields.ts`.
 
-### 1. Production
+## Monthly phase order
 
-For each land mapxel, keyed seasonal weather is
+1. `production`
+2. `trade`
+3. `consumption`
+4. `market`
+5. `taxation`
+6. `financing`
+7. `fiscal`
+8. `society`
+9. `experience`
+10. `behavior`
+11. `aging`
+12. `lifeStage`
+13. `demographics`
+14. `deprivation`
+15. `migration`
+16. `adaptation`
+17. `events`
+18. `projection`
 
-`w = 0.96 + 0.08U + 0.09 sin(πt/6)`,
+Every rule in a phase reads the same phase-start snapshot and emits effects. Effects settle together before the next phase snapshot. A same-phase `after` dependency orders evaluation/provenance only; it does not expose another same-phase rule's writes.
 
-where `U` is a deterministic pseudorandom value in [0, 1), keyed by seed, tick, rule, mapxel, and channel. Effective labor is `L = employment × (0.65 + 0.35 × health)`.
+## Economy
 
-- Food produced: `population × agriculture × (3 + 2 × fertility) × L × w × (1 − 0.18 × pollution) × (1 − 0.6 × waterStress)`.
-- Materials produced: `population × manufacturing × (1.4 + minerals) × L`; multiply by 0.9 when Clean Air is active.
-- Monthly output: `population × L × [6 agriculture × price + 10 manufacturing × cₘ + 9 services × businessHealth + sports × (4 + 7 sportsInterest)]`, where `cₘ = 0.93` under Clean Air and 1 otherwise.
-- The external account pays each cell `0.65 × output` in export receipts. Output itself is not added to cash.
+### Production — `economy.production` — people → mapxel
 
-Weather is bounded by its formula, not by an additional clamp. `foodMade` is reset to the new production amount each month; `foodTraded` is reset before this month's trade.
+Production reads the step-start population cache rather than legacy human mapxel projections.
 
-### 2. Neighbor trade
+Effective labor is:
 
-Each land-neighbor pair is processed once for food and once for materials. Let `qₐ = stockₐ/populationₐ` and `qᵦ = stockᵦ/populationᵦ`. The cell with more stock per resident offers goods. The requested quantity is
+`employmentRate × (0.65 + 0.35 × averageHumanHealth)`.
 
-`min(|qₐ − qᵦ| × populationₐ × populationᵦ / (populationₐ + populationᵦ) × road, 0.85 × sellerPopulation)`,
+Food production is proportional to cached resident population, cached agricultural worker share, fertility, labor, seasonal weather, pollution, and water stress. Manufacturing similarly uses cached manufacturing workers, minerals, labor, and Clean Air policy. Output combines cached occupational shares with sector productivity.
 
-where `road = 0.18 + 0.55 × min(infrastructureₐ, infrastructureᵦ)`. Food trades use the midpoint of the two food prices; materials cost ₡0.65 per unit. Requests below 0.01 units are skipped.
+Firms receive an explicit export receipt from the external account equal to `0.65 × output`. Output itself does not mint money.
 
-Trade settles atomically in goods and cash. For each source account/resource, all outgoing demands share the starting balance proportionally. Each trade is further limited by the buyer's starting cash; its settled amount is the request multiplied by the smaller of the seller-stock and buyer-cash availability factors. The goods and payment move together. Food trade updates each cell's signed net `foodTraded` total.
+### Neighbor trade — `economy.neighbor-trade` — mapxel → mapxel
 
-### 3. Household consumption
+Adjacent land cells compare food/material stocks per resident. The better-stocked cell offers goods toward equalization, limited by road quality and seller inventory. Food trades use the midpoint of local prices; materials use a fixed modeled price.
 
-Residents eat up to the available food: `eaten = min(food, population)`. Monthly food security is `eaten/population`; it is a fraction in [0, 1]. Remaining food is `max(0, food − eaten)`, of which 16% spoils. Thus food stock falls by `eaten + 0.16 × remaining`.
+### Households — `economy.households` — people → mapxel
 
-Materials fall by `min(materials, 0.08 × population + 0.12 × materials)`: a population-based upkeep charge plus 12% inventory depreciation, capped at available stock.
+Residents consume up to one food unit per cached step-start resident. `foodSecurity` is the share of that need met. Remaining food partially spoils, materials decay through upkeep, and household/import spending transfers cash to the external account.
 
-The cell pays the external account
+### Businesses — `economy.businesses` — mapxel → mapxel
 
-`population × (1.6 + 0.04 × cash/population) + 0.09 × output`
+Food scarcity raises a free scarcity-price signal. Posted prices move gradually toward that signal, subject to food price controls. Low food security, expensive ingredients, crime, and unviable service jobs reduce `businessHealth`.
 
-in monthly household/import expenditure. Cash transfers are settled from available starting cash, so a cell cannot spend more cash than it has. Unmet food needs are recorded as low food security; this formula does not create negative food.
+## Government finance
 
-### 4. Market and businesses
+### Taxation — `state.taxation` — mapxel → mapxel
 
-The target food price is
+Taxes are assessed on measured output. Actual collection is capped by local private cash and moves cash to the treasury.
 
-`clamp(1 + [1 − min(2, (foodUsed + food/0.84)/population)] × 1.3 + (1 − foodSecurity) × 1.8, 0.55, 4.5)`.
+### Financing — `state.financing` — mapxel → mapxel
 
-The local `scarcityPrice` signal moves 14% of the way toward that target each month. The posted `price` follows the same adjustment and stays in [0.4, 5] without controls. With food price controls it is capped immediately at ₡1, while `scarcityPrice` remains free to rise. The latter is a modeled pressure signal, not a measured black-market transaction price. Posted prices set neighbor-trade payments and the return that attracts workers into farming, so the cap can prolong an actual shortage.
+Borrowing covers forecast shortfalls subject to a principal credit limit of `₡30 × population` and available external cash.
 
-Business-health target is
+### Fiscal settlement — `state.services` — mapxel → mapxel
 
-`clamp(0.97 − 0.9(1 − foodSecurity) − 0.17 max(0, price − 1.4) − 0.25 crime − 0.7(1 − viableServices), 0.12, 1)`.
+Interest is paid first. Services and subsidies then share remaining treasury cash through a common funding fraction. Population and occupational summaries used for reserve/subsidy calculations come from the step cache. Surplus cash above operating reserves repays principal explicitly.
 
-Business health moves 15% toward its target each month.
+## World and resident environmental effects
 
-The national minimum wage is in crowns per worker per month. Each mapxel estimates payroll capacity separately for each industry. Let `unitOutput` be that industry's per-worker contribution inside the production equation, and `healthFactor = 0.65 + 0.35 health`. Then `capacity = (0.65 − 0.09 − 0.3 businessTax) × unitOutput × healthFactor`: export cash receipts less the modeled imported-input expense and business-tax share. Firms within an industry are approximated as having capacities uniformly spread from half to 1.5 times this mean, so the fraction of jobs that can meet a positive floor `w` is `viableSector = clamp(1.5 − w/capacity)` (zero when capacity is zero). With no floor, all jobs remain viable. `viableServices` is the services fraction; a floor beyond what local shops can earn lowers business health, which further reduces their output next month. This is a local hiring model, not an extra cash debit: wages paid within a mapxel net out of its pooled private account.
+### Autonomous conditions — `environment.conditions` — mapxel → mapxel
 
-### 5–7. Taxation, financing, and fiscal payments
+This rule updates the part of local conditions caused by policy and other world state:
 
-Taxes are assessed on measured output, not cash receipts. For each cell, tax due is
+- health access from health spending, pollution, and food access;
+- education access from education spending;
+- infrastructure from infrastructure spending;
+- pollution reduction from environmental spending;
+- sports/cultural conditions from culture spending.
 
-`max(0, min(cellCash, output × [0.7 incomeTax + 0.3 businessTax]))`.
+### Resident impacts — `population.environment-impact` — people → mapxel
 
-Collected cash moves from cells to the treasury. The forecast used for financing and policy previews is different: it uses the full output-based tax amount, without the per-cell cash cap.
+People contribute separately through:
 
-For a model snapshot, forecast monthly spending is
+- resident wealth improving private health/education access;
+- population/material intensity affecting infrastructure pressure;
+- local and neighboring manufacturing workers creating pollution pressure;
+- population density contributing pollution pressure;
+- sports workers contributing sports interest.
 
-`Σᵢ populationᵢ × [Σₛ serviceRateₛ + Σₖ industryShareᵢₖ × subsidyᵢₖ]`,
+The two rules settle in the same phase, so their deltas sum to the previous combined damped target without pretending resident effects are autonomous environment dynamics.
 
-over populated land cells. Forecast interest is `0.003 × debt` per month. Forecast revenue is `Σᵢ outputᵢ × (0.7 incomeTax + 0.3 businessTax)`. Forecast balance is revenue minus spending and interest.
+## People
 
-Borrowing covers the forecast shortfall against current treasury, subject to both remaining principal capacity and external cash:
+### Employment — `population.employment` — mapxel → people
 
-`borrowed = max(0, min(forecastSpending + forecastInterest − treasury, 30 × population − debt, externalCash))`.
+Actual adult groups gain or lose employment based on local firm demand, occupation viability, taxes, food conditions, education and adaptability. Worker-health input comes from actual population summaries rather than the mapxel health-access field.
 
-The principal debt limit is ₡30 per resident. Interest is due before service and subsidy spending. The amount actually paid is `min(treasury, forecastInterest)`; any unpaid interest is added to debt as arrears. Therefore, total debt can exceed the principal borrowing limit through unpaid interest.
+### Experience — `population.experience` — mapxel → people
 
-The common funding fraction is `clamp((treasury − interestPaid)/forecastSpending)` when forecast spending is positive, and 1 when it is zero. Service and subsidy payments are scaled proportionally by this factor. Of basic service spending, 72% is transferred to local cells and 28% to the external account; subsidies go to local cells. There is no money creation to cover an unfunded budget.
+Groups experience prices, food access, crime, pollution, public services, policy and local economic conditions through their own needs and circumstances. Income, wealth, health, education, wellbeing, approval, environmentalism and civic-liberty attitudes update on groups.
 
-After funding the month's services, cash above an operating reserve of ₡6 per resident repays outstanding debt principal, up to the amount owed. Repayment is an explicit treasury-to-external cash transfer paired with an equal debt reduction; it is separate from interest. A government that restores a surplus therefore repairs its balance sheet instead of accumulating cash indefinitely while debt remains outstanding.
+### Endogenous attitudes — `population.internal-attitudes` — people → people
 
-### 8. Society and demographics
+After experience settles, existing wellbeing slowly shifts solidarity and traditionalism relative to archetype baselines. This is a separate later rule so it acts on settled lived state rather than competing with experience from the same cohort snapshot.
 
-All targets below are calculated from the society-phase snapshot, then each listed index moves toward its target by the specified fraction per month.
+### Crime behavior — `population.crime` — people → mapxel
 
-Let `wealth = cash/population`; `neighborWealth` is the unweighted average cash per resident of the cell's land neighbors (0 if there are none). Define `inequality = clamp((neighborWealth − wealth)/40)` and `poverty = clamp((24 − wealth)/24)`. With service rates `s`, funding fraction `f`, and effective police rate `police = s.police × f`:
+Group poverty, employment status and neighboring wealth inequality create crime pressure; policing and welfare damp it. Cached mapxel employment is not an authority.
 
-| Field | Target | Monthly adjustment |
-| --- | --- | ---: |
-| Crime | `clamp(0.11 + 0.30 poverty + 0.24 inequality + 0.30(1 − employment) − 0.30 police − 0.09 s.welfare f, 0.015, 0.7)` | 12% |
-| Health | `clamp(0.55 + 0.5 s.health f − 0.18 pollution − 0.35(1 − foodSecurity) + 0.001 wealth)` | 4.5% |
-| Education | `clamp(0.35 + 0.6 s.education f + 0.002 wealth)` | 2.5% |
-| Infrastructure | `clamp(0.3 + 0.9 s.infrastructure f + 0.06 min(1, materials/population))` | 6% |
-| Pollution | `clamp((0.75 manufacturing + 0.25 meanNeighborManufacturing) × (0.6 if Clean Air else 1.1) + population/12000 − 0.7 s.environment f)` | 8% |
-| Employment | `clamp(ordinaryJobs × Σ(sectorShare × viableSector), 0.05, 0.98)`, where `ordinaryJobs = clamp(0.96 − 0.6(1 − businessHealth) services − 0.12 businessTax − 0.05(1 − foodSecurity), 0.45, 0.98)` | 10% |
-| Happiness | `clamp(0.29 + 0.22 health + 0.20 foodSecurity + 0.16 employment + 0.08 clamp(wealth/45) − 0.45 crime − 0.08 pollution + 0.12 s.culture f − assemblyPenalty)` | 9% |
-| Approval | `clamp(0.82 happiness + 0.12 − 0.25 incomeTax − 0.17(1 − f) + assemblyEffect)` | 12% |
-| Sports interest | `clamp(0.17 + 0.85 sportsShare + 0.6 s.culture f)` | 6% |
+### Aging — `population.aging` — people → people
 
-`meanNeighborManufacturing` is the unweighted mean of adjacent land mapxels, or the cell's own share if it has no neighbors. It gives adjacent communities part of the modeled pollution exposure. For happiness, `assemblyPenalty` is 0 while public assembly is enabled and 0.12 otherwise. For approval, `assemblyEffect` is +0.025 when enabled and −0.06 otherwise. `clamp` without explicit bounds uses [0, 1].
+Every group ages by `1/12` year each month.
 
-Severe food deprivation produces explicit expected starvation deaths in each mapxel:
+### Life stage — `population.life-stage` — people → people
 
-`starvationDeaths = population × 0.008 × clamp((0.7 − foodSecurity)/0.7)²`.
+Children become adults at 18; adults become seniors at 65. Turning 18 no longer chooses an occupation from the local sector-share cache. New adults enter as unemployed with no occupation.
 
-This is zero when at least 70% of food needs are met. It is a modeled count for the current month, not a cumulative total or a historical mortality estimate. Monthly population change is a net expected rate plus this explicit loss:
+### Natural demographics — `population.demographics` — people → people
 
-`Δpopulation = population × [(0.00065 + 0.00055 happiness + 0.0002 health) − (0.00095 + 0.0005(1 − health) + 0.0008(1 − foodSecurity))] − starvationDeaths`.
+Yearly birth cohorts arise from reproductive adults using lived wellbeing, health, family orientation and keyed variation. Ordinary mortality depends on human age and health.
 
-Children move 0.8% toward `clamp(0.15 + 0.09 happiness, 0.12, 0.28)`. Seniors move 0.5% toward `clamp(0.12 + 0.07 health, 0.12, 0.22)`.
+This rule does not consume food security and does not write the starvation report.
 
-### 9. Migration
+### Food-driven mortality — `population.starvation` — mapxel → people
 
-Each mapxel compares its adjacent communities using an economic opportunity proxy. Let `foodAdjustedReceipts = (0.65 × output/population)/price` and `foodAdjustedReserves = (cash/population)/price`. The 0.65 factor matches the cash actually received from production exports; `price` is the local staple-food price. These are proxies for potential earnings and purchasing power, not observed wages or a complete cost-of-living index. Cell appeal is
+A later `deprivation` phase converts current food insecurity into additional group mortality. It reads the current post-demographics population groups rather than the step-start cache because ordinary births/deaths have already settled.
 
-`happiness + 0.4 employment + 0.28 clamp(foodAdjustedReceipts/5) + 0.12 clamp(foodAdjustedReserves/60) + 0.3 foodSecurity − population/15000`.
+The severe deprivation component is:
 
-Across each land-neighbor pair, residents move from lower to higher appeal. The requested monthly flow is the source population times `min(0.003, 0.007 × |appeal difference|)`. With Freedom of Movement repealed, multiply that flow by 0.08. Migrants carry the same fraction of source-cell cash as their fraction of source population. The phase settles outgoing population and cash proportionally to the starting balances; national population is conserved by migration. Jobs can attract people, while expensive or unavailable food can outweigh higher nominal output.
+`population × 0.008 × clamp((0.7 − foodSecurity) / 0.7)²`.
 
-### 10. Industry adaptation
+### Starvation report — `environment.starvation-report` — mapxel → mapxel
 
-For each sector `k`, compute a base weight `bₖ`, return `rₖ`, and normalized target share `qₖ`:
+This compatibility/reporting rule writes `starvationDeaths` from the same severe-deprivation formula. The actual deaths are owned by `population.starvation`.
 
-| Sector | Base weight `bₖ` | Return `rₖ` |
-| --- | --- | --- |
-| Agriculture | `0.24 + 0.19 fertility` | `1.1(price − 1)` |
-| Manufacturing | `0.13 + 0.1 minerals` | `0.2 education − 0.08` if Clean Air is active; otherwise `0.2 education` |
-| Services | `0.36` | `0.8(businessHealth − 0.85)` |
-| Sports | `0.045 + 0.06 sportsInterest` | `0.25 sportsInterest` |
+### Migration — `population.migration` — mapxel → people
 
-`wₖ = bₖ × exp(clamp(rₖ + 1.1 × subsidyₖ × funding, −2, 4))`, and `qₖ = wₖ / Σⱼwⱼ`. Each sector share moves 6.5% toward `qₖ` per month. Since all shares use the same snapshot and the targets sum to 1, the shares remain normalized. Local subsidies replace, rather than add to, that sector's national subsidy.
+Every third month adult groups compare neighboring places through their needs and circumstances. Appeal includes employment, income, wealth, wellbeing, mobility, attachment, prices, food access, safety, services, pollution, culture and job viability. Positive moves are person-scale quantized `population-transfer` effects.
 
-### 11. Stochastic events
+### Migration cash — `population.migration-cash` — people → mapxel
 
-Random values are deterministic for a given seed, tick, rule ID, mapxel ID, and channel. Each event family samples one candidate land mapxel per month, so adding mapxels does not create an independent national event roll for every cell. Cooldowns are measured from the last event of that family.
+A separate companion rule transfers a proportional share of pooled local private cash along the same planned migration routes. It shares `randomNamespace: 'population.migration'` with the movement rule so both halves reproduce the same stochastic decision from the shared phase snapshot.
 
-| Event | Eligibility and probability | Effects |
-| --- | --- | --- |
-| Violent crime | At least 5 months since the prior event; probability `0.05 + 0.8 × chosenCellCrime` | Happiness −0.06 in the chosen cell and −0.008 in every other land cell |
-| Festival | At least 4 months since the prior event; probability `0.12 + 0.35 × chosenCellSportsInterest` | Chosen cell: sports interest +0.15, happiness +0.04, and external cash transfer of ₡0.40 per resident |
-| Drought | At least 9 months since the prior event; probability 0.10 | Selects the chosen cell's region, destroys 35% of food stock, and adds `0.4 × (1 − waterStress)` water stress to each land cell there |
+### Entry occupation — `population.entry-occupation` — mapxel → people
 
-The probabilities are evaluated against a uniform value in [0, 1); if the event is in cooldown, no roll produces an event. Each month, water stress falls by 35% of its current value before any new drought increase; both changes use the same phase-start state. Effects are applied in the final phase, after that month's consumption, so drought reduces food available and farm output in the following month. Policy may affect risk through modeled state, but does not make a stochastic event inevitable.
+Adults with no occupation choose a sector from local opportunity and archetype affinity. This includes newly adult cohorts, keeping local labor-market choice out of the natural life-stage transition.
 
-## Settlement, validation, and causal records
+### Retraining — `population.retraining` — mapxel → people
 
-- A cash `transfer` moves the same settled amount from one account to another; a `trade` transfers both commodity and payment atomically. Cash cannot be created with a cell delta. Production and destruction use explicit resource deltas.
-- Competing outgoing demands reserve the same phase-start stock. Each demand is scaled by the source's available balance divided by total demand, capped at 1. For a trade, the goods and buyer-cash capacity factors are both applied, using the smaller factor. This conservative one-pass settlement can leave stock unused when another participant is cash-constrained.
-- Incoming resources cannot fund another outgoing effect in the same phase. All effects and model values must be finite; resource stocks and accounts stay nonnegative; index bounds, demographics, and industry-share sums are checked after each phase. A failed tick does not replace the original game state.
-- Rules have unique IDs and must use known phases. Optional `after` dependencies are checked for missing IDs, cycles, and dependencies on later phases. Dependencies within one phase define order only; rules still read the same phase snapshot. The engine canonicalizes registration order.
-- Rule randomness is keyed so an unrelated rule does not consume another rule's random sequence. Extension rules return effects and must not mutate snapshot state, time, topology, or identity.
-- Significant effects and policy decisions may create immutable causes with observed inputs, affected cells, magnitudes, and links to earlier recorded causes. The journal is selective, not exhaustive, and links do not establish counterfactual causation. Small effects may have no record.
+Every sixth month adults compare local occupational opportunities. Employed residents may switch sectors when the gain is material; unemployed residents may retrain. Sector shares are never directly edited.
 
-## Government actions
+### Projection — `population.aggregate` — people → mapxel
 
-The authoritative action boundary is `validateAction`; the console parser is only a convenience. Actions accept exact documented fields, reject unknown keys and non-finite values, and do not advance time. The console supports a single action or an atomic package of 1–20 actions. Every action is validated before any package mutation; an invalid or unaffordable package changes nothing. Preview reports an immediate forecast-budget change and upfront investment cost; the forecast uses current output and policy, not a simulation of future behavioral responses.
+After all causal behavior/events settle, population groups are materialized into compatibility mapxel fields for UI/save consumers:
 
-| Action | Allowed values | Scope and effect |
-| --- | --- | --- |
-| Tax | Income or business rate from 0 to 0.65 | National. Changes the tax parameter used by taxation and society rules. |
-| Minimum wage | ₡0 to ₡10 per worker per month | National. Zero is the default and removes the floor; a positive floor enters each mapxel's payroll-capacity test. |
-| Public spending | Each service rate from ₡0 to ₡2 per resident per month | National. Services: health, education, police, infrastructure, welfare, culture, environment. |
-| Subsidy | ₡0 to ₡3 per sector worker per month | Sector is agriculture, manufacturing, services, or sports; scope is national, region, or explicit land cells. |
-| Law | Boolean on/off | National. Laws: Clean Air, Freedom of Movement, Public Assembly, Food Price Controls. |
-| Investment | ₡1 to ₡1,000,000,000 | Project and scope required; total package cost cannot exceed current treasury. |
+- adult employment rate;
+- resident wellbeing/happiness;
+- resident approval;
+- child and senior shares;
+- employed occupational shares.
 
-Scopes are `{"kind":"national"}`, `{"kind":"region","id":0}`, or `{"kind":"cells","ids":[...]}`. Region IDs must be valid integers. Cell IDs must exist, be distinct, nonempty, and refer to land. Taxes, spending, and laws are national-only. Omitted scope in the console DSL means national for actions that have a scope. `selected` is converted to a fixed list of selected land-cell IDs when parsed.
+This remains temporary compatibility plumbing. It is not a human-state authority.
 
-Local subsidy rates override the national rate. Where local grants overlap, the most recently enacted applicable local rate wins. Setting a national rate clears all local overrides for that sector; setting an applicable rate to zero removes support at that scope. Subsidies do not stack.
+## Events
 
-Investment costs are taken immediately from treasury and moved to the external account. The amount is divided by total population in the scoped cells, then added to each cell's relevant index: transport → infrastructure, hospital → health, school → education, stadium → sports interest. For the first three projects the increment is `amount / scopedPopulation / 60`; for stadium it is `amount / scopedPopulation / 30`. Each resulting index is clamped to [0, 1].
+### World events — `stories.events` — mapxel → mapxel
 
-## Calibration evidence and limits
+Keyed stochastic families include violent crime, sports festivals and regional drought. This rule records the event and applies world/cash consequences.
 
-The simulation documentation reports these observed 48-month baseline ranges on three full-size seeded maps: approval 73.1–73.7%, wellbeing/happiness 80.2–80.9%, food needs met 98.9–99.9% at month 48, zero debt, and full service funding. The documented regression coverage also includes five 48-month seeds, a 240-month run without discrete events, a small initial-condition perturbation, account-conservation checks, policy-direction checks, a subsidy/food/business feedback chain, and unaffordable fiscal settings. `npm run calibrate` runs five scenarios on three 36×26 worlds. Under a national sports subsidy of ₡3 per sector worker per month, national food-security lows are 64.3–65.4% before recovery as farming returns rise and fiscal constraints limit funding.
+### Human event experience — `population.event-experience` — mapxel → people
 
-These are observations and regression checks for selected seeds and scenarios, not mathematical guarantees of stability or universal outcomes. The economy is intentionally simplified: households and firms are aggregates, agriculture is a staple-food basket, manufacturing makes generic materials, and business failures are represented through business health. There is no market auction, individual demographic cohorts, electoral-party system, foreign diplomacy, or interregional transport graph. Projects raise an index immediately; that index then follows ordinary public-service upkeep. Custom policy extremes can cause hardship and default, with finite, inspectable state.
+A companion rule translates the exact same stochastic outcome into resident wellbeing changes. It shares `randomNamespace: 'stories.events'`. The two rules read the same phase-start state and do not require an `after` dependency. Event-linked population provenance is resolved at phase commit, so bookkeeping does not create a false data dependency between the two arrows.
+
+## Population settlement
+
+Population effects are generic engine primitives:
+
+- `population-state`: continuous state change;
+- `population-transition`: discrete cohort-state change;
+- `population-transfer`: migration between cells;
+- `population-delta`: birth or death.
+
+All requests settle against phase-start groups. Competing requests cannot consume more than the source cohort. Partial effects split groups. Similar groups may compact after settlement. When two conceptually sequential full-group changes need each other's settled state, they belong in different phases rather than competing in one phase.
+
+## National summaries
+
+National social metrics are population-weighted over land cells. Population, output, food, starvation deaths, treasury, and debt are summed or reported directly as appropriate. Group income and wealth are behavioral/distributional state, not separately conserved bank accounts. The national `wealth` summary remains private cell cash per resident.
+
+## Extending the simulation
+
+New behavior should be a plain rule module that declares one of the four directions, reads whatever world/person context the mechanism genuinely requires, and emits effects only on its declared output side.
+
+If a proposed rule needs both population and world mutations, split it by causal arrow rather than weakening direction validation. Split stochastic consequences may share a `randomNamespace` when they must reproduce one keyed decision.
+
+When adding a state field, define its mechanics in the appropriate registry. When a rule needs aggregate human state at step start, use the immutable step cache rather than another persistent mapxel mirror. When it must observe people changed earlier in the same month, read current authoritative groups.
+
+The intended extension cost remains:
+
+- **new behavior using existing state**: one focused rule module plus tests;
+- **new state**: typed state + registry definition + initialization/save migration where required;
+- **no engine branch** unless the behavior introduces a genuinely new generic mechanical primitive.

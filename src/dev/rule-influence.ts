@@ -1,5 +1,7 @@
 import { randomAt } from '../sim/math';
+import { populationStateFieldSpec } from '../sim/population/fields';
 import { defaultRules } from '../sim/rules';
+import { buildStepCache } from '../sim/step-cache';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import {
   PHASES,
@@ -11,7 +13,7 @@ import {
 } from '../sim/types';
 
 export interface InfluencePath {
-  source: 'model' | 'lastEvents';
+  source: 'model' | 'cache' | 'lastEvents';
   path: string;
   label: string;
 }
@@ -20,7 +22,8 @@ export interface RuleConsumer {
   key: string;
   ruleId: string;
   phase: string;
-  month: 'this month' | 'next month';
+  month: 'this month' | 'next month' | 'later month';
+  monthsAhead: number;
   self: boolean;
   strength: number;
   paths: InfluencePath[];
@@ -49,8 +52,25 @@ export interface RuleInputInfluence {
 
 interface ReadSet {
   model: Set<string>;
+  cache: Set<string>;
   lastEvents: Set<string>;
 }
+
+const CACHE_DEPENDENCIES: Record<string, readonly string[]> = {
+  population: ['count'],
+  adultPopulation: ['count', 'lifeStage'],
+  employedAdults: ['count', 'lifeStage', 'employed'],
+  workerPopulation: ['count', 'lifeStage', 'employed', 'occupation'],
+  employmentRate: ['count', 'lifeStage', 'employed'],
+  childShare: ['count', 'lifeStage'],
+  seniorShare: ['count', 'lifeStage'],
+  averageEducation: ['count', 'education'],
+  averageIncome: ['count', 'income'],
+  averageWealth: ['count', 'wealth'],
+  averageHealth: ['count', 'health'],
+  averageWellbeing: ['count', 'wellbeing'],
+  averageApproval: ['count', 'approval'],
+};
 
 function words(value: string): string {
   return value
@@ -90,20 +110,25 @@ function trackedObject<T extends object>(
 
 function readSet(game: Game, phase: PhaseTrace, rule: Rule): ReadSet {
   const modelReads = new Set<string>();
+  const cacheReads = new Set<string>();
   const eventReads = new Set<string>();
   const model = structuredClone(phase.before);
+  const cache = structuredClone(buildStepCache(game.model));
   const trackedModel = trackedObject(model, '', modelReads);
+  const trackedCache = trackedObject(cache, '', cacheReads);
   const trackedEvents = trackedObject({ ...game.lastEvents }, '', eventReads);
+  const randomNamespace = rule.randomNamespace ?? rule.id;
 
   rule.run({
     model: trackedModel,
+    cache: trackedCache,
     lastEvents: trackedEvents,
     random: (cell, channel = '') => (
-      randomAt(model.seed, model.tick, rule.id, cell, channel)
+      randomAt(model.seed, model.tick, randomNamespace, cell, channel)
     ),
   });
 
-  return { model: modelReads, lastEvents: eventReads };
+  return { model: modelReads, cache: cacheReads, lastEvents: eventReads };
 }
 
 function accountPath(account: Account, resource: string): string | undefined {
@@ -126,6 +151,10 @@ function effectOutputKeys(effect: Effect): string[] {
       ...Object.keys(effect.value).map(field => `budget.${field}`),
     ];
     case 'event': return [`event.${effect.key}`];
+    case 'population-transfer': return ['population.transfer'];
+    case 'population-transition': return ['population.transition'];
+    case 'population-state': return ['population.state'];
+    case 'population-delta': return [`population.${effect.cause}`];
   }
 }
 
@@ -164,6 +193,15 @@ function pathsWrittenByEffect(effect: Effect): { source: 'model' | 'lastEvents';
       ];
     case 'event':
       return [{ source: 'lastEvents', path: effect.key }];
+    case 'population-transfer':
+      return [effect.from, effect.to].flatMap(cell => [
+        { source: 'model' as const, path: `cells.${cell}.population` },
+        { source: 'model' as const, path: `populationGroups.${cell}` },
+      ]);
+    case 'population-transition':
+    case 'population-state':
+    case 'population-delta':
+      return [{ source: 'model', path: `populationGroups.${effect.cell}` }];
   }
 }
 
@@ -172,6 +210,11 @@ function pathLabel(path: string, model: Model): string {
   if (cellMatch) {
     const cell = model.cells[Number(cellMatch[1])];
     return `${cell?.name ?? `Mapxel ${cellMatch[1]}`} · ${words(cellMatch[2])}`;
+  }
+  const cacheMatch = /^peopleByCell\.(\d+)\.(.+)$/.exec(path);
+  if (cacheMatch) {
+    const cell = model.cells[Number(cacheMatch[1])];
+    return `${cell?.name ?? `Mapxel ${cacheMatch[1]}`} · people ${words(cacheMatch[2])}`;
   }
   if (path.startsWith('budget.')) return `Budget · ${words(path.slice(7))}`;
   if (path === 'externalCash') return 'External Cash';
@@ -203,12 +246,57 @@ function writtenPaths(
   return result;
 }
 
-function matchingPaths(writes: readonly InfluencePath[], reads: ReadSet): InfluencePath[] {
-  return writes.filter(write => (
-    write.source === 'model'
-      ? reads.model.has(write.path)
-      : reads.lastEvents.has(write.path)
-  ));
+function pathMatches(write: string, read: string): boolean {
+  return read === write || read.startsWith(`${write}.`);
+}
+
+function cacheDependency(path: string): { cell: number; fields: readonly string[] } | undefined {
+  const match = /^peopleByCell\.(\d+)\.([^.]+)(?:\.([^.]+))?$/.exec(path);
+  if (!match) return undefined;
+  const summary = match[2];
+  const fields = summary === 'occupationShares'
+    ? ['count', 'lifeStage', 'employed', 'occupation']
+    : CACHE_DEPENDENCIES[summary];
+  return fields ? { cell: Number(match[1]), fields } : undefined;
+}
+
+function populationWrite(path: string): { cell: number; field?: string } | undefined {
+  const match = /^populationGroups\.(\d+)(?:\.\d+\.(?:attitudes\.)?([^.]+))?$/.exec(path);
+  if (!match) return undefined;
+  return { cell: Number(match[1]), field: match[2] };
+}
+
+function populationWriteFeedsCache(writePath: string, cachePath: string): boolean {
+  const write = populationWrite(writePath);
+  const cache = cacheDependency(cachePath);
+  if (!write || !cache || write.cell !== cache.cell) return false;
+  return write.field === undefined || cache.fields.includes(write.field);
+}
+
+function matchingPaths(
+  writes: readonly InfluencePath[],
+  reads: ReadSet,
+  includeCacheDependencies: boolean,
+): InfluencePath[] {
+  return writes.filter(write => {
+    if (write.source === 'lastEvents') {
+      for (const read of reads.lastEvents) {
+        if (pathMatches(write.path, read)) return true;
+      }
+      return false;
+    }
+
+    if (write.source !== 'model') return false;
+    for (const read of reads.model) {
+      if (pathMatches(write.path, read)) return true;
+    }
+    if (includeCacheDependencies) {
+      for (const read of reads.cache) {
+        if (populationWriteFeedsCache(write.path, read)) return true;
+      }
+    }
+    return false;
+  });
 }
 
 function collectConsumers(
@@ -218,8 +306,10 @@ function collectConsumers(
   ruleId: string,
   month: RuleConsumer['month'],
   afterPhaseIndex = -1,
+  monthsAhead = 0,
 ): RuleConsumer[] {
   const consumers: RuleConsumer[] = [];
+  const includeCacheDependencies = month !== 'this month';
 
   phases.forEach(phase => {
     const index = PHASES.indexOf(phase.phase);
@@ -228,7 +318,11 @@ function collectConsumers(
     for (const trace of phase.rules) {
       const rule = defaultRules.find(candidate => candidate.id === trace.id);
       if (!rule) continue;
-      const matched = matchingPaths(writes, readSet(game, phase, rule));
+      const matched = matchingPaths(
+        writes,
+        readSet(game, phase, rule),
+        includeCacheDependencies,
+      );
       if (!matched.length) continue;
 
       consumers.push({
@@ -236,6 +330,7 @@ function collectConsumers(
         ruleId: rule.id,
         phase: rule.phase,
         month,
+        monthsAhead,
         self: rule.id === ruleId,
         strength: matched.length / Math.max(1, writes.length),
         paths: matched.slice(0, 6),
@@ -250,6 +345,16 @@ function inputGroupMatchesPath(inputKey: string, path: string): boolean {
   if (inputKey.startsWith('cell.')) {
     const field = inputKey.slice('cell.'.length);
     return new RegExp(`^cells\\.\\d+\\.${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).test(path);
+  }
+  if (inputKey.startsWith('people.')) {
+    const field = inputKey.slice('people.'.length)
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\\\./g, '\\.');
+    return new RegExp(`^peopleByCell\\.\\d+\\.${field}$`).test(path);
+  }
+  if (inputKey.startsWith('population.')) {
+    const field = inputKey.slice('population.'.length).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^populationGroups\\.\\d+\\.\\d+\\.(?:${field}|attitudes\\.${field})$`).test(path);
   }
   if (inputKey.startsWith('policy.')) return path === inputKey;
   if (inputKey.startsWith('budget.')) return path === inputKey;
@@ -274,6 +379,10 @@ function inputReadPaths(
     if (!inputGroupMatchesPath(inputKey, path)) continue;
     paths.push({ source: 'model', path, label: pathLabel(path, phase.before) });
   }
+  for (const path of reads.cache) {
+    if (!inputGroupMatchesPath(inputKey, path)) continue;
+    paths.push({ source: 'cache', path, label: pathLabel(path, phase.before) });
+  }
   for (const path of reads.lastEvents) {
     if (!inputGroupMatchesPath(inputKey, path)) continue;
     paths.push({ source: 'lastEvents', path, label: `Last Event · ${words(path)}` });
@@ -282,7 +391,51 @@ function inputReadPaths(
 }
 
 function ruleWrittenPaths(trace: PhaseTrace['rules'][number], model: Model): InfluencePath[] {
-  return writtenPaths(trace.effects, '', model);
+  const result: InfluencePath[] = [];
+  const seen = new Set<string>();
+  const add = (path: string) => {
+    const key = `model:${path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({ source: 'model', path, label: pathLabel(path, model) });
+  };
+
+  for (const effect of trace.effects) {
+    if (effect.kind === 'population-state' || effect.kind === 'population-transition') {
+      const index = model.populationGroups[effect.cell].findIndex(group => group.id === effect.group);
+      if (index < 0) continue;
+      if (effect.kind === 'population-state') {
+        for (const field of Object.keys(effect.change)) {
+          const spec = populationStateFieldSpec(field);
+          if (!spec) continue;
+          add(spec.storage === 'attitudes'
+            ? `populationGroups.${effect.cell}.${index}.attitudes.${field}`
+            : `populationGroups.${effect.cell}.${index}.${field}`);
+        }
+      } else {
+        for (const field of Object.keys(effect.transition)) {
+          add(`populationGroups.${effect.cell}.${index}.${field}`);
+        }
+      }
+      continue;
+    }
+
+    for (const write of writtenPaths([effect], '', model)) {
+      const key = `${write.source}:${write.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(write);
+    }
+  }
+
+  return result;
+}
+
+function producerMatch(write: InfluencePath, read: InfluencePath): boolean {
+  if (read.source === 'cache') {
+    return write.source === 'model' && populationWriteFeedsCache(write.path, read.path);
+  }
+  return write.source === read.source && pathMatches(write.path, read.path);
 }
 
 function collectProducers(
@@ -294,14 +447,15 @@ function collectProducers(
 
   for (const phase of phases) {
     const phaseIndex = PHASES.indexOf(phase.phase);
-    const month: RuleProducer['month'] = phaseIndex < rulePhaseIndex ? 'this month' : 'previous month';
 
     for (const trace of phase.rules) {
       const writes = ruleWrittenPaths(trace, phase.before);
-      const matched = reads.filter(read => writes.some(write => (
-        write.source === read.source && write.path === read.path
-      )));
+      const matched = reads.filter(read => writes.some(write => producerMatch(write, read)));
       if (!matched.length) continue;
+      const cacheDerived = matched.some(read => read.source === 'cache');
+      const month: RuleProducer['month'] = cacheDerived || phaseIndex >= rulePhaseIndex
+        ? 'previous month'
+        : 'this month';
 
       producers.push({
         key: `${month}:${trace.id}`,
@@ -344,15 +498,19 @@ export function analyzeRuleInfluence(
     phaseIndex,
   );
 
-  if (!baseline.result.ended) {
-    const next = traceStep(baseline.result);
-    consumers.push(...collectConsumers(
-      baseline.result,
-      next.phases,
-      writes,
-      ruleId,
-      'next month',
-    ));
+  let future = baseline.result;
+  const seenFutureRules = new Set<string>();
+  const horizon = ruleId === 'population.migration' ? 3 : 1;
+  for (let ahead = 1; ahead <= horizon && !future.ended; ahead += 1) {
+    const next = traceStep(future);
+    const found = collectConsumers(future, next.phases, writes, ruleId,
+      ahead === 1 ? 'next month' : 'later month', -1, ahead);
+    for (const consumer of found) {
+      if (seenFutureRules.has(consumer.ruleId)) continue;
+      consumers.push(consumer);
+      seenFutureRules.add(consumer.ruleId);
+    }
+    future = next.result;
   }
 
   return {

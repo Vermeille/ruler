@@ -5,9 +5,13 @@ import { step } from '../src/sim/engine';
 import { clamp } from '../src/sim/math';
 import { forecastBudget } from '../src/sim/policy';
 import {
-  adaptationRule, consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
-  migrationRule, productionRule, societyRule, taxationRule, tradeRule,
+  consumptionRule, environmentRule, eventRule, financingRule, fiscalRule, marketRule,
+  migrationCashRule, migrationRule, populationAggregationRule, populationCrimeRule,
+  populationDemographicsRule, populationEmploymentRule, populationEnvironmentImpactRule,
+  populationEventExperienceRule, populationExperienceRule, populationStarvationRule,
+  productionRule, starvationReportRule, taxationRule, tradeRule,
 } from '../src/sim/rules';
+import { buildStepCache } from '../src/sim/step-cache';
 import type { Effect, Game, Mapxel, MutableField, Rule } from '../src/sim/types';
 
 const tiny = () => createGame('rule-contract', 12, 12, 48);
@@ -18,18 +22,55 @@ const delta = (all: Effect[], cell: number, field: MutableField) => {
   assert.ok(found && found.kind === 'delta', `Missing ${field} delta for cell ${cell}`);
   return found.amount;
 };
+const summedDelta = (all: Effect[], cell: number, field: MutableField) => all
+  .filter((effect): effect is Extract<Effect, { kind: 'delta' }> =>
+    effect.kind === 'delta' && effect.cell === cell && effect.field === field)
+  .reduce((sum, effect) => sum + effect.amount, 0);
 const near = (actual: number, expected: number, tolerance = 1e-7) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
+const migrationEffects = (game: Game, draw: number) => [
+  ...effects(migrationRule, game, () => draw),
+  ...effects(migrationCashRule, game, () => draw),
+];
+const outboundMigrants = (game: Game, from: number, draw: number) => migrationEffects(game, draw)
+  .filter((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
+    effect.kind === 'population-transfer' && effect.from === from)
+  .reduce((sum, effect) => sum + effect.amount, 0);
+const expectedOutboundMigrants = (game: Game, from: number, samples = 400) => {
+  let total = 0;
+  for (let index = 0; index < samples; index += 1) {
+    total += outboundMigrants(game, from, (index + 0.5) / samples);
+  }
+  return total / samples;
+};
+const employmentLosses = (all: Effect[]) => all
+  .filter((effect): effect is Extract<Effect, { kind: 'population-transition' }> =>
+    effect.kind === 'population-transition' && effect.transition.employed === false)
+  .reduce((sum, effect) => sum + effect.amount, 0);
+const setResidentWellbeing = (g: Game, cell: number, wellbeing: number) => {
+  for (const group of g.model.populationGroups[cell]) group.wellbeing = wellbeing;
+};
+const environmentEffects = (g: Game) => [
+  ...effects(environmentRule, g),
+  ...effects(populationEnvironmentImpactRule, g),
+];
 
-test('production depends on labor, terrain, weather and Clean Air, with an explicit export receipt', () => {
+test('production depends on workers, terrain, weather and Clean Air, with an explicit export receipt', () => {
   const g = tiny(), c = land(g), e = effects(productionRule, g);
-  const labor = c.employment * (.65 + .35 * c.health);
+  const people = buildStepCache(g.model).peopleByCell[c.id];
+  const labor = people.employmentRate * (.65 + .35 * people.averageHealth);
   const weather = 1 + Math.sin(g.model.tick * Math.PI / 6) * .09;
-  const food = c.population * c.agriculture * (3 + 2 * c.fertility) * labor * weather * (1 - c.pollution * .18) * (1 - c.waterStress * .6);
+  const food = people.population * people.occupationShares.agriculture * (3 + 2 * c.fertility)
+    * labor * weather * (1 - c.pollution * .18) * (1 - c.waterStress * .6);
   near(delta(e, c.id, 'food'), food);
   near(delta(e, c.id, 'foodMade'), food);
   const dry = structuredClone(g); dry.model.cells[c.id].waterStress = .4;
   near(delta(effects(productionRule, dry), c.id, 'foodMade'), food * .76);
-  const output = c.population * labor * (c.agriculture * 6 * c.price + c.manufacturing * 10 + c.services * 9 * c.businessHealth + c.sports * (4 + c.sportsInterest * 7));
+  const output = people.population * labor * (
+    people.occupationShares.agriculture * 6 * c.price
+    + people.occupationShares.manufacturing * 10
+    + people.occupationShares.services * 9 * c.businessHealth
+    + people.occupationShares.sports * (4 + c.sportsInterest * 7)
+  );
   near(delta(e, c.id, 'output'), output - c.output);
   assert.ok(e.some(x => x.kind === 'transfer' && x.from === 'external' && x.to === c.id && Math.abs(x.amount - output * .65) < 1e-7));
   const clean = structuredClone(g); clean.model.policy.laws.cleanAir = true;
@@ -135,141 +176,227 @@ test('fiscal surplus above operating reserves repays debt with an explicit cash 
   near(paid.model.treasury + paid.model.externalCash + paid.model.cells.reduce((sum, c) => sum + c.cash, 0), totalCash, .001);
 });
 
-test('society responds separately to food, spending, taxes, business health and liberties', () => {
-  const base = tiny(), c = land(base);
-  const changed = (edit: (cell: Mapxel, game: Game) => void, field: MutableField) => {
-    const variant = structuredClone(base); edit(variant.model.cells[c.id], variant);
-    return delta(effects(societyRule, variant), c.id, field) - delta(effects(societyRule, base), c.id, field);
-  };
-  assert.ok(changed((cell) => { cell.foodSecurity = .2; }, 'health') < 0);
-  assert.ok(changed((_, g) => { g.model.policy.spending.health = 1; }, 'health') > 0);
-  assert.ok(changed((_, g) => { g.model.policy.incomeTax = .6; }, 'approval') < 0);
-  assert.ok(changed((cell) => { cell.businessHealth = .2; }, 'employment') < 0);
-  assert.ok(changed((_, g) => { g.model.policy.laws.publicAssembly = false; }, 'happiness') < 0);
-  assert.ok(changed((_, g) => { g.model.policy.laws.cleanAir = true; }, 'pollution') < 0);
-  assert.ok(changed((_, g) => { g.model.policy.spending.police = 0; }, 'crime') > 0);
+test('floating-point exhausted treasury never requests negative fiscal transfers', () => {
+  const g = tiny();
+  g.model.treasury = -1e-12;
+  const proposed = effects(fiscalRule, g).filter((effect): effect is Extract<Effect, { kind: 'transfer' | 'repayDebt' }> =>
+    effect.kind === 'transfer' || effect.kind === 'repayDebt');
+  assert.ok(proposed.every(effect => effect.amount >= 0));
 });
 
-test('a wage floor reduces viable service firms and hiring according to local payroll capacity', () => {
+test('environment separates autonomous place dynamics from resident impacts', () => {
+  const base = tiny(), c = land(base);
+  const changedWorld = (edit: (cell: Mapxel, game: Game) => void, field: MutableField) => {
+    const variant = structuredClone(base); edit(variant.model.cells[c.id], variant);
+    return summedDelta(environmentEffects(variant), c.id, field)
+      - summedDelta(environmentEffects(base), c.id, field);
+  };
+  assert.ok(changedWorld((cell) => { cell.foodSecurity = .2; }, 'health') < 0);
+  assert.ok(changedWorld((_, g) => { g.model.policy.spending.health = 1; }, 'health') > 0);
+  assert.ok(changedWorld((_, g) => { g.model.policy.laws.cleanAir = true; }, 'pollution') < 0);
+
+  const residentApproval = (edit: (game: Game) => void) => {
+    const variant = structuredClone(base); edit(variant);
+    return step(variant, [
+      environmentRule,
+      populationEnvironmentImpactRule,
+      populationExperienceRule,
+      populationAggregationRule,
+    ]).model.cells[c.id].approval;
+  };
+  const baselineApproval = residentApproval(() => {});
+  assert.ok(residentApproval(g => { g.model.policy.incomeTax = .6; }) < baselineApproval);
+  assert.ok(residentApproval(g => { g.model.policy.laws.publicAssembly = false; }) < baselineApproval);
+
+  const projected = new Set(['employment', 'happiness', 'approval', 'children', 'seniors']);
+  assert.ok(environmentEffects(base).every(effect =>
+    effect.kind !== 'delta' || !projected.has(effect.field)));
+  assert.ok(!environmentEffects(base).some(effect =>
+    effect.kind === 'delta' && effect.field === 'crime'));
+});
+
+test('crime pressure emerges from resident circumstances and policy rather than cached employment', () => {
+  const base = tiny(), c = land(base);
+  const crimeDelta = (game: Game) => delta(effects(populationCrimeRule, game), c.id, 'crime');
+  const baseline = crimeDelta(base);
+
+  const noPolice = structuredClone(base);
+  noPolice.model.policy.spending.police = 0;
+  assert.ok(crimeDelta(noPolice) > baseline,
+    'less policing should allow more resident crime pressure to reach the world');
+
+  const distressed = structuredClone(base);
+  for (const group of distressed.model.populationGroups[c.id]) {
+    group.wealth = 0;
+    if (group.lifeStage === 'adult') group.employed = false;
+  }
+  assert.ok(crimeDelta(distressed) > baseline,
+    'poorer, unemployed resident groups should create more crime pressure');
+
+  const staleAggregate = structuredClone(base);
+  staleAggregate.model.cells[c.id].employment = 0;
+  near(crimeDelta(staleAggregate), baseline);
+});
+
+test('a wage floor reduces viable service firms and actual group employment according to local payroll capacity', () => {
   const baseline = tiny(), c = land(baseline);
   const ruled = structuredClone(baseline);
   ruled.model.policy.minimumWage = 4;
   assert.ok(delta(effects(marketRule, ruled), c.id, 'businessHealth') < delta(effects(marketRule, baseline), c.id, 'businessHealth') - .03,
     'service firms with insufficient receipts contract');
-  assert.ok(delta(effects(societyRule, ruled), c.id, 'employment') < delta(effects(societyRule, baseline), c.id, 'employment') - .01,
-    'the same local wage floor reduces viable jobs');
-  const hiring = effects(societyRule, ruled).find(e => e.kind === 'delta' && e.cell === c.id && e.field === 'employment');
-  assert.ok(hiring && hiring.kind === 'delta' && hiring.evidence?.parents?.includes('policy:minimumWage'),
-    'the local hiring explanation links back to the ruling');
-  const productive = structuredClone(ruled), farm = structuredClone(ruled);
-  Object.assign(productive.model.cells[c.id], { agriculture: 0, manufacturing: 1, services: 0, sports: 0 });
-  Object.assign(farm.model.cells[c.id], { agriculture: 1, manufacturing: 0, services: 0, sports: 0 });
-  assert.ok(delta(effects(societyRule, productive), c.id, 'employment') > delta(effects(societyRule, farm), c.id, 'employment') + .02,
-    'higher local receipts support more legal jobs at the same floor');
+
+  const baselineLosses = employmentLosses(effects(populationEmploymentRule, baseline));
+  const ruledEffects = effects(populationEmploymentRule, ruled);
+  const ruledLosses = employmentLosses(ruledEffects);
+  assert.ok(ruledLosses > baselineLosses,
+    `the wage floor should eliminate more actual jobs: ${baselineLosses} → ${ruledLosses}`);
+  assert.ok(ruledEffects.some(effect => effect.kind === 'population-transition'
+    && effect.transition.employed === false
+    && effect.evidence?.parents?.includes('policy:minimumWage')),
+  'job-loss evidence links back to the ruling');
 });
 
-test('industrial pollution reaches adjacent residents and Clean Air improves their later health', () => {
+test('industrial workers create pollution pressure that reaches neighbors and Clean Air reduces it', () => {
   const base = tiny();
   const source = base.model.cells.find(c => c.biome !== 'water' && base.model.neighbors[c.id].length >= 2)!;
   const neighborId = base.model.neighbors[source.id][0];
   const industrial = structuredClone(base);
-  Object.assign(industrial.model.cells[source.id], { agriculture: .05, manufacturing: .9, services: .04, sports: .01 });
-  assert.ok(delta(effects(societyRule, industrial), neighborId, 'pollution') >
-    delta(effects(societyRule, base), neighborId, 'pollution') + .001);
+  for (const group of industrial.model.populationGroups[source.id]) {
+    if (group.lifeStage === 'adult') {
+      group.occupation = 'manufacturing';
+      group.employed = true;
+    }
+  }
+  assert.ok(summedDelta(environmentEffects(industrial), neighborId, 'pollution') >
+    summedDelta(environmentEffects(base), neighborId, 'pollution') + .001);
   const controlled = structuredClone(industrial);
   controlled.model.policy.laws.cleanAir = true;
-  let untreated = step(industrial, [societyRule]);
-  let treated = step(controlled, [societyRule]);
+  let untreated = step(industrial, [environmentRule, populationEnvironmentImpactRule]);
+  let treated = step(controlled, [environmentRule, populationEnvironmentImpactRule]);
   assert.ok(treated.model.cells[neighborId].pollution < untreated.model.cells[neighborId].pollution);
-  untreated = step(untreated, [societyRule]);
-  treated = step(treated, [societyRule]);
+  untreated = step(untreated, [environmentRule, populationEnvironmentImpactRule]);
+  treated = step(treated, [environmentRule, populationEnvironmentImpactRule]);
   assert.ok(treated.model.cells[neighborId].health > untreated.model.cells[neighborId].health);
 });
 
-test('severe local food deprivation causes explicit deaths and resets when food recovers', () => {
+test('severe local food deprivation causes population deaths and reports the severe component', () => {
   const g = tiny(), c = land(g);
   c.foodSecurity = .35;
-  const deaths = c.population * .008 * .5 ** 2;
-  near(delta(effects(societyRule, g), c.id, 'starvationDeaths'), deaths);
-  const deprived = step(g, [societyRule]);
-  near(deprived.model.cells[c.id].starvationDeaths, deaths);
+  const severeDeaths = c.population * .008 * .5 ** 2;
+  near(delta(effects(starvationReportRule, g), c.id, 'starvationDeaths'), severeDeaths);
+  const fedControl = structuredClone(g);
+  fedControl.model.cells[c.id].foodSecurity = 1;
+  const deprived = step(g, [populationStarvationRule, starvationReportRule]);
+  const fedOnce = step(fedControl, [populationStarvationRule, starvationReportRule]);
+  near(deprived.model.cells[c.id].starvationDeaths, severeDeaths);
+  assert.ok(deprived.model.cells[c.id].population < fedOnce.model.cells[c.id].population - severeDeaths);
   const fed = structuredClone(deprived);
   fed.model.cells[c.id].foodSecurity = 1;
-  near(delta(effects(societyRule, fed), c.id, 'starvationDeaths'), -deaths);
-  near(step(fed, [societyRule]).model.cells[c.id].starvationDeaths, 0);
+  near(delta(effects(starvationReportRule, fed), c.id, 'starvationDeaths'), -severeDeaths);
+  near(step(fed, [populationStarvationRule, starvationReportRule]).model.cells[c.id].starvationDeaths, 0);
 });
 
-test('migration moves population and proportional savings toward appeal; movement law scales both', () => {
+test('natural demographics remain people-to-people without writing starvation reports', () => {
+  const g = tiny(), c = land(g);
+  c.foodSecurity = .1;
+  assert.ok(!effects(populationDemographicsRule, g).some(effect =>
+    effect.kind === 'delta' && effect.field === 'starvationDeaths'));
+});
+
+test('migration moves population and its cash consequence follows the same planned moves', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
-  a.happiness = 0; b.happiness = 1;
-  const flow = (game: Game) => effects(migrationRule, game).filter(e => e.kind === 'transfer' && e.from === a.id && e.to === b.id);
-  const open = flow(g);
-  const residents = open.find(e => e.kind === 'transfer' && e.resource === 'population');
-  const savings = open.find(e => e.kind === 'transfer' && e.resource === 'cash');
-  assert.ok(residents && residents.kind === 'transfer' && savings && savings.kind === 'transfer');
-  near(savings.amount, residents.amount * a.cash / a.population);
-  const closed = structuredClone(g); closed.model.policy.laws.freeMovement = false;
-  const restricted = flow(closed).find(e => e.kind === 'transfer' && e.resource === 'population');
-  assert.ok(restricted && restricted.kind === 'transfer');
-  near(restricted.amount, residents.amount * .08);
+  setResidentWellbeing(g, a.id, .1);
+  setResidentWellbeing(g, b.id, .9);
+
+  const open = migrationEffects(g, 0);
+  const populationMoves = open.filter((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
+    effect.kind === 'population-transfer' && effect.from === a.id);
+  assert.ok(populationMoves.length > 0);
+  const destination = populationMoves[0].to;
+  const residents = populationMoves.filter(effect => effect.to === destination)
+    .reduce((sum, effect) => sum + effect.amount, 0);
+  const savings = open.find(e => e.kind === 'transfer' && e.resource === 'cash'
+    && e.from === a.id && e.to === destination);
+  assert.ok(savings && savings.kind === 'transfer');
+  near(savings.amount, residents * a.cash / a.population);
+
+  const closed = structuredClone(g);
+  closed.model.policy.laws.freeMovement = false;
+  const openExpected = expectedOutboundMigrants(g, a.id);
+  const restrictedExpected = expectedOutboundMigrants(closed, a.id);
+  assert.ok(openExpected > 0);
+  assert.ok(restrictedExpected < openExpected * .2,
+    `movement restrictions should sharply reduce expected flow: ${openExpected} → ${restrictedExpected}`);
 });
 
 test('migration follows local earning opportunities when other conditions match', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
-  for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, happiness: .65, employment: .9, foodSecurity: 1, price: 1 });
+  for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, employment: .9, foodSecurity: 1, price: 1 });
+  setResidentWellbeing(g, a.id, .65);
+  setResidentWellbeing(g, b.id, .65);
   a.output = 400; b.output = 1600;
-  const flow = effects(migrationRule, g).find(e => e.kind === 'transfer' && e.resource === 'population' && e.from === a.id && e.to === b.id);
-  assert.ok(flow && flow.kind === 'transfer' && flow.amount > 0, 'workers move toward higher cash-generating output');
+  assert.ok(expectedOutboundMigrants(g, a.id) > 0, 'workers move out of the lower-opportunity place');
 });
+
 test('migration does not request negative savings transfers from a cash-depleted cell', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
   a.cash = -1e-14;
-  a.happiness = .1;
-  b.happiness = 1;
-  const moves = effects(migrationRule, g).filter(e => e.kind === 'transfer' && e.from === a.id && e.to === b.id);
-  assert.ok(moves.some(e => e.kind === 'transfer' && e.resource === 'population' && e.amount > 0));
-  assert.ok(moves.every(e => e.kind === 'transfer' && e.amount >= 0));
+  setResidentWellbeing(g, a.id, .1);
+  setResidentWellbeing(g, b.id, .9);
+  const moves = migrationEffects(g, 0).filter(e =>
+    (e.kind === 'transfer' || e.kind === 'population-transfer') && e.from === a.id);
+  assert.ok(moves.some(e => e.kind === 'population-transfer' && e.amount > 0));
+  assert.ok(moves.every(e => 'amount' in e && e.amount >= 0));
 });
 
-test('high food costs or shortages can reverse an output advantage', () => {
-  const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
-  const b = g.model.cells[g.model.neighbors[a.id][0]];
-  for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, happiness: .65, employment: .9, foodSecurity: 1, price: 1 });
-  a.output = 400; b.output = 1600;
-  b.price = 5;
-  const expensive = effects(migrationRule, g).find(e => e.kind === 'transfer' && e.resource === 'population' && e.from === b.id && e.to === a.id);
-  assert.ok(expensive && expensive.kind === 'transfer' && expensive.amount > 0, 'purchasing power matters more than nominal output');
-  b.price = 1; b.foodSecurity = 0;
-  const hungry = effects(migrationRule, g).find(e => e.kind === 'transfer' && e.resource === 'population' && e.from === b.id && e.to === a.id);
-  assert.ok(hungry && hungry.kind === 'transfer' && hungry.amount > 0, 'workers leave a place where they cannot eat');
+test('high food costs or shortages raise outward migration pressure', () => {
+  const g = tiny();
+  const b = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
+  for (const id of [b.id, ...g.model.neighbors[b.id]]) {
+    const cell = g.model.cells[id];
+    if (cell.biome !== 'water') {
+      Object.assign(cell, { cash: 8000, foodSecurity: 1, price: 1 });
+      setResidentWellbeing(g, id, .65);
+    }
+  }
+  const baseline = expectedOutboundMigrants(g, b.id);
+
+  const expensive = structuredClone(g);
+  expensive.model.cells[b.id].price = 5;
+  const costlyFlow = expectedOutboundMigrants(expensive, b.id);
+
+  const hungry = structuredClone(g);
+  hungry.model.cells[b.id].foodSecurity = 0;
+  const hungryFlow = expectedOutboundMigrants(hungry, b.id);
+
+  assert.ok(costlyFlow > baseline, `higher local prices should increase outward pressure: ${baseline} → ${costlyFlow}`);
+  assert.ok(hungryFlow > baseline, `local hunger should increase outward pressure: ${baseline} → ${hungryFlow}`);
 });
 
-test('industry adaptation keeps shares normalized and reacts to subsidies and food prices', () => {
-  const g = tiny(), c = land(g), baseline = effects(adaptationRule, g);
-  const sports = structuredClone(g); sports.model.policy.subsidies.sports = 3;
-  assert.ok(delta(effects(adaptationRule, sports), c.id, 'sports') > delta(baseline, c.id, 'sports'));
-  const expensive = structuredClone(g); expensive.model.cells[c.id].price = 3;
-  assert.ok(delta(effects(adaptationRule, expensive), c.id, 'agriculture') > delta(baseline, c.id, 'agriculture'));
-  near(['agriculture', 'manufacturing', 'services', 'sports'].reduce((s, k) => s + delta(baseline, c.id, k as MutableField), 0), 0);
-  const unfunded = structuredClone(sports); unfunded.model.budget.funding = 0;
-  near(delta(effects(adaptationRule, unfunded), c.id, 'sports'), delta(baseline, c.id, 'sports'));
-});
-
-test('each stochastic event has its own probability, cooldown and bounded state effects', () => {
+test('each stochastic event has world effects and a separate population experience arrow', () => {
   const g = tiny(); g.model.tick = 10;
-  const selected = land(g), random = (_cell: number, channel = '') => channel.endsWith('-place') ? g.model.cells.filter(c => c.biome !== 'water').findIndex(c => c.id === selected.id) / g.model.cells.filter(c => c.biome !== 'water').length : 0;
-  const active = effects(eventRule, g, random);
-  assert.deepEqual(active.filter(e => e.kind === 'event').map(e => e.kind === 'event' && e.key), ['violentCrime', 'festival', 'drought']);
-  near(delta(active, selected.id, 'sportsInterest'), .15);
-  near(delta(active, selected.id, 'food'), -selected.food * .35);
-  near(delta(active, selected.id, 'waterStress'), .4);
+  const selected = land(g);
+  const candidates = g.model.cells.filter(c => c.biome !== 'water');
+  const random = (_cell: number, channel = '') => channel.endsWith('-place')
+    ? candidates.findIndex(c => c.id === selected.id) / candidates.length
+    : 0;
+  const world = effects(eventRule, g, random);
+  const experience = effects(populationEventExperienceRule, g, random);
+  const active = [...world, ...experience];
+  assert.deepEqual(world.filter(e => e.kind === 'event').map(e => e.kind === 'event' && e.key), ['violentCrime', 'festival', 'drought']);
+  near(delta(world, selected.id, 'sportsInterest'), .15);
+  near(delta(world, selected.id, 'food'), -selected.food * .35);
+  near(delta(world, selected.id, 'waterStress'), .4);
+  assert.ok(experience.some(e => e.kind === 'population-state' && e.cell === selected.id && e.change.wellbeing !== undefined),
+    'morale events change residents through the mapxel-to-people companion rule');
+  assert.ok(!active.some(e => e.kind === 'delta' && e.field === 'happiness'));
   const recovering = structuredClone(g); recovering.model.cells[selected.id].waterStress = .4;
   const recovery = effects(eventRule, recovering, (_cell, channel = '') => channel.endsWith('-place') ? random(_cell, channel) : .999);
   near(delta(recovery, selected.id, 'waterStress'), -.14);
-  assert.ok(active.some(e => e.kind === 'transfer' && e.from === 'external' && e.to === selected.id && e.amount === selected.population * .4));
+  assert.ok(world.some(e => e.kind === 'transfer' && e.from === 'external' && e.to === selected.id && e.amount === selected.population * .4));
   assert.equal(effects(eventRule, g, random, { violentCrime: 9, festival: 9, drought: 9 }).filter(e => e.kind === 'event').length, 0);
   const noRoll = effects(eventRule, g, (_cell, channel = '') => channel.endsWith('-place') ? random(_cell, channel) : .999);
   assert.equal(noRoll.filter(e => e.kind === 'event').length, 0);

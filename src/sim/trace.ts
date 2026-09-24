@@ -1,7 +1,9 @@
 import { assertModel, commitEffects, orderRules } from './engine';
 import { deepFreeze, randomAt, summarize } from './math';
 import { writeMonthlyNews } from './narrative';
+import { assertRuleEffects } from './rule-direction';
 import { defaultRules } from './rules';
+import { buildStepCache } from './step-cache';
 import {
   PHASES,
   type DeepReadonly,
@@ -10,11 +12,14 @@ import {
   type Model,
   type Phase,
   type Rule,
+  type RuleDirection,
+  type StepCache,
   type Summary,
 } from './types';
 
 export interface RuleTrace {
   id: string;
+  direction: RuleDirection;
   description: string;
   effects: Effect[];
 }
@@ -40,10 +45,36 @@ type Proposal = {
   effect: Effect;
 };
 
+function cloneModel(model: Model): Model {
+  return {
+    ...model,
+    cells: model.cells.map(cell => ({ ...cell })),
+    populationGroups: model.populationGroups.map(groups => groups.map(group => ({
+      ...group,
+      attitudes: { ...group.attitudes },
+    }))),
+    neighbors: model.neighbors.map(neighbors => [...neighbors]),
+    regions: [...model.regions],
+    policy: {
+      ...model.policy,
+      spending: { ...model.policy.spending },
+      subsidies: { ...model.policy.subsidies },
+      laws: { ...model.policy.laws },
+    },
+    localSubsidies: model.localSubsidies.map(subsidy => ({
+      ...subsidy,
+      scope: subsidy.scope.kind === 'cells'
+        ? { ...subsidy.scope, ids: [...subsidy.scope.ids] }
+        : { ...subsidy.scope },
+    })),
+    budget: { ...model.budget },
+  };
+}
+
 function cloneGameForTrace(game: Game): Game {
   return {
     ...game,
-    model: structuredClone(game.model),
+    model: cloneModel(game.model),
     causes: [...game.causes],
     articles: [...game.articles],
     history: [...game.history],
@@ -53,32 +84,32 @@ function cloneGameForTrace(game: Game): Game {
 }
 
 function traceRule(
-  game: Game,
   snapshot: DeepReadonly<Model>,
+  cache: DeepReadonly<StepCache>,
+  lastEvents: Readonly<Record<string, number>>,
   rule: Rule,
 ): RuleTrace {
+  const randomNamespace = rule.randomNamespace ?? rule.id;
   const random = (cell: number, channel = '') => {
-    return randomAt(snapshot.seed, snapshot.tick, rule.id, cell, channel);
+    return randomAt(snapshot.seed, snapshot.tick, randomNamespace, cell, channel);
   };
+  const effects = rule.run({ model: snapshot, cache, random, lastEvents });
+  assertRuleEffects(rule, effects);
 
   return {
     id: rule.id,
+    direction: rule.direction,
     description: rule.description,
-    effects: rule.run({
-      model: snapshot,
-      random,
-      lastEvents: Object.freeze({ ...game.lastEvents }),
-    }),
+    effects,
   };
 }
 
 function proposalsFromRules(rules: RuleTrace[]): Proposal[] {
-  return rules.flatMap(rule => {
-    return rule.effects.map(effect => ({
-      rule: rule.id,
-      effect,
-    }));
-  });
+  const proposals: Proposal[] = [];
+  for (const rule of rules) {
+    for (const effect of rule.effects) proposals.push({ rule: rule.id, effect });
+  }
+  return proposals;
 }
 
 /**
@@ -101,21 +132,23 @@ export function traceStep(
   const next = cloneGameForTrace(game);
   const phases: PhaseTrace[] = [];
   next.model.tick += 1;
+  const cache = buildStepCache(next.model);
 
   for (const phase of PHASES) {
     const activeRules = orderedRules.filter(rule => rule.phase === phase);
     if (activeRules.length === 0) continue;
 
-    const before = structuredClone(next.model);
-    const snapshot = deepFreeze(structuredClone(next.model));
+    const before = cloneModel(next.model);
+    const snapshot = deepFreeze(cloneModel(next.model));
     const causesBefore = next.causes.length;
     const articlesBefore = next.articles.length;
-    const ruleTraces = activeRules.map(rule => traceRule(next, snapshot, rule));
+    const lastEvents = Object.freeze({ ...next.lastEvents });
+    const ruleTraces = activeRules.map(rule => traceRule(snapshot, cache, lastEvents, rule));
 
     commitEffects(next, snapshot, proposalsFromRules(ruleTraces));
     assertModel(next.model);
 
-    const after = structuredClone(next.model);
+    const after = cloneModel(next.model);
     phases.push({
       phase,
       before,

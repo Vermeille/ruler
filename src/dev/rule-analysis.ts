@@ -1,5 +1,6 @@
 import { deepFreeze, randomAt } from '../sim/math';
 import { defaultRules } from '../sim/rules';
+import { buildStepCache } from '../sim/step-cache';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import {
   MUTABLE_FIELDS,
@@ -86,8 +87,8 @@ export interface RuleAnalysis {
 }
 
 type Scalar = string | number | boolean;
-type InputCategory = 'cell' | 'policy' | 'budget' | 'global' | 'random' | 'event' | 'structure';
-type InputSource = 'model' | 'lastEvents' | 'random';
+type InputCategory = 'cell' | 'people' | 'policy' | 'budget' | 'global' | 'random' | 'event' | 'structure';
+type InputSource = 'model' | 'cache' | 'lastEvents' | 'random';
 
 interface ConcreteInput {
   key: string;
@@ -141,6 +142,13 @@ const NORMALIZED_FIELDS = new Set<string>([
   'pollution',
   'infrastructure',
   'employment',
+  'employmentRate',
+  'childShare',
+  'seniorShare',
+  'averageEducation',
+  'averageHealth',
+  'averageWellbeing',
+  'averageApproval',
   'foodSecurity',
   'sportsInterest',
   'agriculture',
@@ -154,7 +162,7 @@ const NORMALIZED_FIELDS = new Set<string>([
 ]);
 const MAX_INPUTS_PER_GROUP = 5;
 const MAX_ANALYZED_INPUTS = 72;
-const MAX_INPUT_GROUPS = 14;
+const MAX_INPUT_GROUPS = 32;
 const MAX_OUTPUT_GROUPS = 10;
 
 function words(value: string): string {
@@ -181,6 +189,21 @@ function classifyModelRead(
       cell,
       perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
       example: `${model.cells[cell]?.name ?? `cell ${cell}`} · ${field}`,
+    };
+  }
+
+  const groupMatch = /^populationGroups\.(\d+)\.\d+\.([^.]+)(?:\.([^.]+))?$/.exec(path);
+  if (groupMatch) {
+    const cell = Number(groupMatch[1]);
+    const field = groupMatch[3] ?? groupMatch[2];
+    const structural = ['id', 'archetype', 'lifeStage', 'occupation'].includes(field);
+    return {
+      groupKey: `population.${field}`,
+      groupLabel: structural ? `Group ${words(field)} (structure)` : `Group ${words(field)}`,
+      category: structural ? 'structure' : 'people',
+      cell,
+      perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
+      example: `${model.cells[cell]?.name ?? `cell ${cell}`} · group ${field}`,
     };
   }
 
@@ -228,6 +251,8 @@ function classifyModelRead(
   }
 
   const structural = path === 'seed'
+    || path === 'archetypeModelVersion'
+    || path === 'nextPopulationGroupId'
     || path === 'width'
     || path === 'height'
     || path === 'tick'
@@ -244,6 +269,29 @@ function classifyModelRead(
     category: structural ? 'structure' : 'global',
     perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
     example: path,
+  };
+}
+
+function classifyCacheRead(
+  path: string,
+  value: Scalar,
+  model: DeepReadonly<Model>,
+): Omit<ConcreteInput, 'key' | 'source' | 'path' | 'value'> {
+  const match = /^peopleByCell\.(\d+)\.([^.]+)(?:\.([^.]+))?$/.exec(path);
+  const cell = match ? Number(match[1]) : undefined;
+  const field = match
+    ? (match[3] ? `${match[2]}.${match[3]}` : match[2])
+    : path;
+  const structural = path.endsWith('.length');
+  return {
+    groupKey: structural ? `structure.${path.split('.')[0]}` : `people.${field}`,
+    groupLabel: structural ? `${words(path.split('.')[0])} (structure)` : `People · ${words(field)}`,
+    category: structural ? 'structure' : 'people',
+    cell,
+    perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
+    example: cell === undefined
+      ? `step cache · ${field}`
+      : `${model.cells[cell]?.name ?? `cell ${cell}`} · people ${field}`,
   };
 }
 
@@ -272,7 +320,9 @@ function recordPrimitive(
     return;
   }
 
-  const classified = classifyModelRead(path, value, model);
+  const classified = source === 'cache'
+    ? classifyCacheRead(path, value, model)
+    : classifyModelRead(path, value, model);
   reads.set(key, { key, source, path, value, ...classified });
 }
 
@@ -314,10 +364,13 @@ function runTrackedRule(
   rule: Rule,
 ): { effects: Effect[]; reads: ConcreteInput[] } {
   const reads = new Map<string, ConcreteInput>();
-  // The diagnostic proxy itself enforces read-only access. Freezing before
-  // proxying would violate Proxy invariants for nested object properties.
+  // The diagnostic proxies themselves enforce read-only access. The cache is
+  // derived from the step-start game, matching production rather than being
+  // recomputed from each phase snapshot.
   const model = structuredClone(phase.before);
+  const cache = structuredClone(buildStepCache(game.model));
   const trackedModel = trackedObject(model, '', 'model', reads, model);
+  const trackedCache = trackedObject(cache, '', 'cache', reads, model);
   const trackedEvents = trackedObject(
     { ...game.lastEvents },
     '',
@@ -325,10 +378,11 @@ function runTrackedRule(
     reads,
     model,
   );
+  const randomNamespace = rule.randomNamespace ?? rule.id;
 
   const random = (cell: number, channel = '') => {
     const path = `${cell}:${channel || 'default'}`;
-    const value = randomAt(model.seed, model.tick, rule.id, cell, channel);
+    const value = randomAt(model.seed, model.tick, randomNamespace, cell, channel);
     const key = `random:${path}`;
     if (!reads.has(key)) {
       reads.set(key, {
@@ -350,6 +404,7 @@ function runTrackedRule(
   return {
     effects: rule.run({
       model: trackedModel,
+      cache: trackedCache,
       random,
       lastEvents: trackedEvents,
     }),
@@ -417,6 +472,38 @@ function outputChannels(effects: readonly Effect[]): VectorChannel[] {
           groupKey: `event.${effect.key}`,
           groupLabel: `Event · ${words(effect.key)}`,
           value: 1,
+        });
+        break;
+      case 'population-transfer':
+        channels.push({
+          key: `population-transfer:${effect.group}:${effect.from}:${effect.to}`,
+          groupKey: 'population.transfer', groupLabel: 'Population Group Flow', value: effect.amount,
+        });
+        break;
+      case 'population-transition':
+        for (const [field, value] of Object.entries(effect.transition)) {
+          channels.push({
+            key: `population-transition:${effect.group}:${field}:${String(value)}`,
+            groupKey: `population.transition.${field}`,
+            groupLabel: `Group ${words(field)} Transition`, value: effect.amount,
+          });
+        }
+        break;
+      case 'population-state':
+        for (const [field, change] of Object.entries(effect.change)) {
+          channels.push({
+            key: `population-state:${effect.group}:${field}`,
+            groupKey: `population.state.${field}`,
+            groupLabel: `Group ${words(field)} Change`, value: change * effect.amount,
+          });
+        }
+        break;
+      case 'population-delta':
+        channels.push({
+          key: `population-delta:${effect.cell}:${effect.group ?? effect.archetype}:${effect.cause}`,
+          groupKey: `population.${effect.cause}`,
+          groupLabel: `Population ${words(effect.cause)}`,
+          value: effect.amount,
         });
         break;
     }
@@ -511,6 +598,7 @@ function runPerturbedRule(
   perturbation: Perturbation,
 ): Effect[] {
   const model = structuredClone(phase.before);
+  const cache = structuredClone(buildStepCache(game.model));
   const lastEvents = { ...game.lastEvents };
   const randomOverride = new Map<string, number>();
 
@@ -519,6 +607,11 @@ function runPerturbedRule(
     if (typeof current === 'number' || typeof current === 'boolean') {
       setAtPath(model, input.path, perturbation.value);
     }
+  } else if (input.source === 'cache') {
+    const current = getAtPath(cache, input.path);
+    if (typeof current === 'number' || typeof current === 'boolean') {
+      setAtPath(cache, input.path, perturbation.value);
+    }
   } else if (input.source === 'lastEvents') {
     lastEvents[input.path] = perturbation.value as number;
   } else {
@@ -526,13 +619,16 @@ function runPerturbedRule(
   }
 
   const frozen = deepFreeze(model);
+  const frozenCache = deepFreeze(cache);
+  const randomNamespace = rule.randomNamespace ?? rule.id;
   return rule.run({
     model: frozen,
+    cache: frozenCache,
     lastEvents: Object.freeze(lastEvents),
     random: (cell, channel = '') => {
       const key = `${cell}:${channel || 'default'}`;
       return randomOverride.get(key)
-        ?? randomAt(frozen.seed, frozen.tick, rule.id, cell, channel);
+        ?? randomAt(frozen.seed, frozen.tick, randomNamespace, cell, channel);
     },
   });
 }
@@ -574,6 +670,15 @@ function effectCellActivity(
       case 'event':
         for (const cell of effect.evidence.cells) add(cell, 1);
         if (effect.article.cell !== undefined) add(effect.article.cell, 1);
+        break;
+      case 'population-transfer':
+        add(effect.from, effect.amount / Math.max(1, model.cells[effect.from].population));
+        add(effect.to, effect.amount / Math.max(1, model.cells[effect.to].population));
+        break;
+      case 'population-transition':
+      case 'population-state':
+      case 'population-delta':
+        add(effect.cell, effect.amount / Math.max(1, model.cells[effect.cell].population));
         break;
       case 'budget':
       case 'repayDebt':
@@ -773,6 +878,10 @@ function outputKeyForEffect(effect: Effect): string {
     case 'trade': return `trade.${effect.resource}.amount`;
     case 'budget': return 'budget.debtDelta';
     case 'event': return `event.${effect.key}`;
+    case 'population-transfer': return 'population.transfer';
+    case 'population-transition': return 'population.transition';
+    case 'population-state': return 'population.state';
+    case 'population-delta': return `population.${effect.cause}`;
   }
 }
 
@@ -820,6 +929,21 @@ function buildFootprint(
         amount: effect.amount,
         score: 0,
       });
+    } else if (effect.kind === 'population-transfer') {
+      addOutput(effect.from, outputKey);
+      addOutput(effect.to, outputKey);
+      flows.push({
+        key: `population-transfer:${index}`,
+        from: effect.from,
+        to: effect.to,
+        outputKey,
+        label: 'Population group flow',
+        amount: effect.amount,
+        score: 0,
+      });
+    } else if (effect.kind === 'population-transition'
+      || effect.kind === 'population-state' || effect.kind === 'population-delta') {
+      addOutput(effect.cell, outputKey);
     } else if (effect.kind === 'event') {
       for (const cell of effect.evidence.cells) addOutput(cell, outputKey);
     }
