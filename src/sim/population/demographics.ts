@@ -93,6 +93,9 @@ function deathEffects(
 }
 
 /** Births and ordinary mortality arise from people’s own age, health and lived state. */
+// [I] DEMOGRAPHICS-BIRTHRATE1
+// [I] DEMOGRAPHICS-INHERITANCE1
+// [I] DEMOGRAPHICS-MORTALITY1
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
   direction: 'people-to-people',
@@ -210,6 +213,7 @@ function currentPopulation(groups: readonly DeepReadonly<PopulationGroup>[]): nu
 }
 
 /** Food access is an environmental condition that removes actual people through mortality. */
+// [I] DEMOGRAPHICS-STARVATION1
 export const populationStarvationRule: Rule = {
   id: 'population.starvation',
   direction: 'mapxel-to-people',
@@ -258,6 +262,7 @@ export const populationStarvationRule: Rule = {
 };
 
 /** Compatibility report for UI/history; mortality itself is owned by population.starvation. */
+// [I] DEMOGRAPHICS-STARVATIONREPORT1
 export const starvationReportRule: Rule = {
   id: 'environment.starvation-report',
   direction: 'mapxel-to-mapxel',
