@@ -15,9 +15,9 @@ import { createGame } from '../src/sim/world';
 
 const game = () => createGame('population-authority-tests', 12, 12, 48);
 const land = (g: Game) => g.model.cells.find(cell => cell.biome !== 'water')!;
-const effects = (rule: Rule, g: Game): Effect[] => rule.run({
+const effects = (rule: Rule, g: Game, draw = 0.5): Effect[] => rule.run({
   model: deepFreeze(structuredClone(g.model)),
-  random: () => 0.5,
+  random: () => draw,
   lastEvents: {},
 });
 
@@ -73,12 +73,14 @@ test('employed adults can switch sectors when policy makes another occupation ma
   const source = g.model.populationGroups[cell.id].find(group =>
     group.lifeStage === 'adult' && group.employed && group.occupation !== 'sports' && group.count >= 1)!;
 
-  const transition = effects(retrainingRule, g).find((effect): effect is Extract<Effect, { kind: 'population-transition' }> =>
+  // A zero draw realizes any positive expected sub-person cohort. This test is about the
+  // direction/mechanism; unbiased stochastic rounding is tested separately.
+  const transition = effects(retrainingRule, g, 0).find((effect): effect is Extract<Effect, { kind: 'population-transition' }> =>
     effect.kind === 'population-transition' && effect.group === source.id);
   assert.ok(transition);
   assert.equal(transition.transition.occupation, 'sports');
   assert.equal(transition.transition.employed, undefined);
-  assert.ok(transition.amount > 0 && transition.amount < source.count);
+  assert.ok(transition.amount > 0 && transition.amount <= source.count);
 });
 
 test('migration emerges from individual group circumstances rather than one precomputed cell flow', () => {
@@ -135,10 +137,25 @@ test('migration emerges from individual group circumstances rather than one prec
   });
   g.model.tick = 3;
 
-  const moves = effects(migrationRule, g).filter((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
-    effect.kind === 'population-transfer' && effect.from === from.id && effect.to === to.id);
-  const a = moves.find(effect => effect.group === first.id);
-  const b = moves.find(effect => effect.group === second.id);
-  assert.ok(a && b);
-  assert.notEqual(a.amount, b.amount);
+  // Cohort actions are stochastically rounded to person-scale units. Average deterministic
+  // draws to recover the underlying expected flow instead of comparing one lottery result.
+  const expectedMove = (group: number) => {
+    const samples = 200;
+    let total = 0;
+    for (let index = 0; index < samples; index += 1) {
+      const draw = (index + 0.5) / samples;
+      const move = effects(migrationRule, g, draw).find((effect): effect is Extract<Effect, { kind: 'population-transfer' }> =>
+        effect.kind === 'population-transfer'
+          && effect.from === from.id
+          && effect.to === to.id
+          && effect.group === group);
+      total += move?.amount ?? 0;
+    }
+    return total / samples;
+  };
+
+  const a = expectedMove(first.id);
+  const b = expectedMove(second.id);
+  assert.ok(a > 0 && b > 0);
+  assert.ok(Math.abs(a - b) > 1e-3);
 });
