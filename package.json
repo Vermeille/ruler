@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "check:specs": "tsx scripts/check-spec-ids.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "calibrate": "tsx scripts/calibrate.ts",
