@@ -3,7 +3,7 @@ import { deepFreeze, randomAt, summarize } from './math';
 import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
 import { mergePopulation } from './population/merge';
-import { planPopulation, reconcileLegacyPopulation, settlePopulation } from './population/settlement';
+import { planPopulation, settlePopulation } from './population/settlement';
 import {
   applyAccumulatedDeltas,
   planResourceSettlement,
@@ -105,32 +105,6 @@ function touchedPopulationCells(effects: readonly PopulationEffect[]): Set<numbe
   return cells;
 }
 
-function reconcilePopulationProjection(
-  game: Game,
-  proposals: readonly Proposal[],
-  populationEffects: readonly PopulationEffect[],
-  populationTouchedCells: Set<number>,
-): void {
-  let populationCountChanged = populationEffects.some(effect =>
-    effect.kind === 'population-transfer' || effect.kind === 'population-delta');
-  const reconciliationCells = new Set(populationTouchedCells);
-
-  for (const { effect } of proposals) {
-    if (effect.kind === 'delta' && effect.field === 'population') {
-      populationCountChanged = true;
-      reconciliationCells.add(effect.cell);
-    } else if (effect.kind === 'transfer' && effect.resource === 'population') {
-      populationCountChanged = true;
-      if (typeof effect.from === 'number') reconciliationCells.add(effect.from);
-      if (typeof effect.to === 'number') reconciliationCells.add(effect.to);
-    }
-  }
-
-  if (populationCountChanged) {
-    reconcileLegacyPopulation(game.model, reconciliationCells);
-  }
-}
-
 function compactPopulationIfNeeded(
   game: Game,
   populationEffects: readonly PopulationEffect[],
@@ -200,7 +174,6 @@ export function commitEffects(
   });
   causality.commit();
 
-  reconcilePopulationProjection(game, proposals, populationEffects, populationTouchedCells);
   compactPopulationIfNeeded(game, populationEffects, populationPlan, populationTouchedCells);
 }
 
