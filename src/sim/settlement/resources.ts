@@ -1,7 +1,7 @@
 import { constrainMapxelFieldValue, mapxelFieldSpec } from '../map-fields';
 import type { Account, DeepReadonly, Effect, Game, Model, MutableField } from '../types';
 
-export type Resource = 'cash' | 'food' | 'materials' | 'population';
+export type Resource = 'cash' | 'food' | 'materials';
 
 export type ResourceSettlementPlan = {
   demands: Map<string, number>;
