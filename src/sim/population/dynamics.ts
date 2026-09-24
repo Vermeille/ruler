@@ -17,7 +17,7 @@ function regionalLag(
 export const populationComparisonRule: Rule = {
   id: 'population.relative-comparison',
   direction: 'mapxel-to-people',
-  phase: 'experience',
+  phase: 'comparison',
   description: 'Relative regional and within-region disadvantage modestly depress approval and outlook even when absolute conditions remain tolerable.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
@@ -65,7 +65,7 @@ export const populationComparisonRule: Rule = {
 export const populationPolicyAdjustmentRule: Rule = {
   id: 'population.policy-adjustment',
   direction: 'mapxel-to-people',
-  phase: 'experience',
+  phase: 'policyReaction',
   description: 'People experience abrupt policy changes as temporary uncertainty, with adaptable and risk-tolerant archetypes reacting less strongly.',
   run({ model }) {
     const effects: Effect[] = [];
@@ -108,7 +108,7 @@ export const populationPolicyAdjustmentRule: Rule = {
 export const populationSalienceRule: Rule = {
   id: 'population.public-salience',
   direction: 'mapxel-to-people',
-  phase: 'behavior',
+  phase: 'attention',
   description: 'Food shortages, health pressure, crime, and education failures temporarily raise attention to the corresponding existing need.',
   run({ model }) {
     const effects: Effect[] = [];
@@ -152,7 +152,7 @@ export const populationSalienceRule: Rule = {
 export const populationMobilizationRule: Rule = {
   id: 'population.mobilization',
   direction: 'people-to-people',
-  phase: 'behavior',
+  phase: 'mobilization',
   description: 'Low approval, hardship, pessimism, relative disadvantage, civic-liberty conflict, and nearby mobilization build latent collective action.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
@@ -213,7 +213,7 @@ export const populationMobilizationRule: Rule = {
 export const populationInfectionRule: Rule = {
   id: 'population.infection',
   direction: 'people-to-people',
-  phase: 'behavior',
+  phase: 'contagion',
   description: 'Infection spreads from local and neighboring people, worsens under density and health-system strain, and recovers faster where health access is strong.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
