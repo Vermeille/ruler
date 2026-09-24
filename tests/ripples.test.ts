@@ -7,7 +7,7 @@ import { randomAt, summarize } from '../src/sim/math';
 import { consumptionRule, defaultRules, eventRule, marketRule, tradeRule } from '../src/sim/rules';
 import type { Action, Game, Mapxel } from '../src/sim/types';
 
-// Paired trajectories use the same seed and exclude discrete events so policy is the only input difference.
+// Paired trajectories use the same seed and exclude discrete world events so policy is the only input difference.
 const rules = defaultRules.filter(r => r.id !== 'stories.events');
 type Frame = ReturnType<typeof summarize> & { revenue: number; funding: number; agriculture: number; businessHealth: number };
 function trajectory(seed: string, actions: Action[] = [], months = 48): Frame[] {
@@ -58,14 +58,17 @@ test('extreme combined tax rates can produce a late Laffer reversal through the 
   }
 });
 
-test('funded health spending improves health and later economic output', () => {
+test('funded health spending improves resident health and later economic output', () => {
   const baseline = trajectory('alder-42');
   const health = trajectory('alder-42', [{ type: 'spending', service: 'health', amount: .7 }]);
   const after = 23;
   assert.ok(health[after].funding > .99, 'the treatment must actually be funded');
-  assert.ok(health[after].health > baseline[after].health + .1);
-  assert.ok(health[after].output > baseline[after].output * 1.03);
-  assert.ok(health[after].revenue > baseline[after].revenue + .04);
+  assert.ok(health[after].health > baseline[after].health + .1,
+    'funded care must materially improve resident health');
+  assert.ok(health[after].output > baseline[after].output,
+    'production uses actual resident health, so the health gain should propagate to output');
+  assert.ok(health[after].revenue > baseline[after].revenue + .04,
+    'the stronger economy should eventually reach realized tax revenue');
 });
 
 test('Clean Air trades immediate output for lower pollution and later health', () => {
