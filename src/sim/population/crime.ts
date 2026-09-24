@@ -14,7 +14,6 @@ function localCrimePressure(model: DeepReadonly<Model>, cellId: number): {
   unemployment: number;
   representative?: DeepReadonly<PopulationGroup>;
 } {
-  const cell = model.cells[cellId];
   const groups = model.populationGroups[cellId];
   const population = groups.reduce((sum, group) => sum + group.count, 0);
   const adults = groups.reduce((sum, group) =>
