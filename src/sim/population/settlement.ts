@@ -1,4 +1,4 @@
-import type { DeepReadonly, Effect, Model, PopulationGroup } from '../types';
+import type { DeepReadonly, Effect, Model, PopulationGroup, PopulationStateField } from '../types';
 import { ARCHETYPE_COUNT } from './archetypes';
 import {
   applyPopulationStateDelta,
@@ -96,6 +96,8 @@ function validateGroupState(group: Omit<PopulationGroup, 'id' | 'archetype' | 'c
 export interface PopulationPlan {
   demands: Map<number, number>;
   groups: Map<number, GroupLocation>;
+  /** Groups targeted only by full-cohort continuous state deltas. Those deltas stack instead of splitting mass. */
+  additiveStateGroups: Set<number>;
   independent: boolean;
 }
 
@@ -107,20 +109,37 @@ export interface PopulationOutcome {
 export function planPopulation(snapshot: DeepReadonly<Model>, effects: readonly PopulationEffect[]): PopulationPlan {
   const demands = new Map<number, number>();
   const groups = new Map<number, GroupLocation>();
+  const additiveStateGroups = new Set<number>();
   let independent = true;
-  if (effects.length === 0) return { demands, groups, independent };
+  if (effects.length === 0) return { demands, groups, additiveStateGroups, independent };
   snapshot.populationGroups.forEach((cellGroups, cell) => {
     cellGroups.forEach((group, index) => groups.set(group.id, { cell, index, group }));
   });
   const strictShape = Object.isFrozen(snapshot);
+  const byGroup = new Map<number, GroupEffect[]>();
   for (const effect of effects) {
     validatePopulationEffect(snapshot, effect, groups, strictShape);
     if (!isGroupEffect(effect)) continue;
-    const prior = demands.get(effect.group);
-    if (prior !== undefined) independent = false;
-    demands.set(effect.group, (prior ?? 0) + effect.amount);
+    const list = byGroup.get(effect.group) ?? [];
+    list.push(effect);
+    byGroup.set(effect.group, list);
   }
-  return { demands, groups, independent };
+
+  for (const [groupId, groupEffects] of byGroup) {
+    const source = groups.get(groupId)!.group;
+    const additive = groupEffects.every(effect =>
+      effect.kind === 'population-state' && effect.amount >= source.count - 1e-9);
+    if (additive) {
+      additiveStateGroups.add(groupId);
+      continue;
+    }
+    for (const effect of groupEffects) {
+      const prior = demands.get(groupId);
+      if (prior !== undefined) independent = false;
+      demands.set(groupId, (prior ?? 0) + effect.amount);
+    }
+  }
+  return { demands, groups, additiveStateGroups, independent };
 }
 
 function cloneGroup(source: DeepReadonly<PopulationGroup>): PopulationGroup {
@@ -179,6 +198,47 @@ function stableSourceIndices(effects: readonly PopulationEffect[], plan: Populat
   return true;
 }
 
+function settleAdditiveStateGroups(
+  model: Model,
+  effects: readonly PopulationEffect[],
+  plan: PopulationPlan,
+  outcomes: PopulationOutcome[],
+  handled: Set<number>,
+): void {
+  const indicesByGroup = new Map<number, number[]>();
+  effects.forEach((effect, index) => {
+    if (!isGroupEffect(effect) || !plan.additiveStateGroups.has(effect.group)) return;
+    const indices = indicesByGroup.get(effect.group) ?? [];
+    indices.push(index);
+    indicesByGroup.set(effect.group, indices);
+  });
+
+  for (const [groupId, indices] of indicesByGroup) {
+    const location = plan.groups.get(groupId)!;
+    const source = location.group;
+    const live = model.populationGroups[location.cell][location.index];
+    if (!live || live.id !== groupId) throw new Error(`Population group ${groupId} moved during settlement.`);
+    const combined: Partial<Record<PopulationStateField, number>> = {};
+    for (const index of indices) {
+      const effect = effects[index];
+      if (effect.kind !== 'population-state') continue;
+      for (const field in effect.change) {
+        const key = field as PopulationStateField;
+        combined[key] = (combined[key] ?? 0) + (effect.change[key] ?? 0);
+      }
+      outcomes[index] = { actual: source.count, resultingGroup: live.id };
+      handled.add(index);
+    }
+    applyGroupChange(live, source, {
+      kind: 'population-state',
+      cell: location.cell,
+      group: groupId,
+      amount: source.count,
+      change: combined,
+    });
+  }
+}
+
 function settleIndependentPopulation(
   model: Model,
   effects: readonly PopulationEffect[],
@@ -189,13 +249,16 @@ function settleIndependentPopulation(
   if (liveGroups) {
     model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
   }
-  const outcomes: PopulationOutcome[] = [];
+  const outcomes: PopulationOutcome[] = effects.map(() => ({ actual: 0 }));
+  const handled = new Set<number>();
+  settleAdditiveStateGroups(model, effects, plan, outcomes, handled);
 
-  for (const effect of effects) {
+  effects.forEach((effect, index) => {
+    if (handled.has(index)) return;
     if (!isGroupEffect(effect)) {
       const id = addBirth(model, effect, effect.amount);
-      outcomes.push({ actual: effect.amount, resultingGroup: id });
-      continue;
+      outcomes[index] = { actual: effect.amount, resultingGroup: id };
+      return;
     }
 
     const cell = sourceCell(effect);
@@ -209,16 +272,16 @@ function settleIndependentPopulation(
     const outcome: PopulationOutcome = { actual };
 
     if (actual <= 1e-12) {
-      outcomes.push(outcome);
-      continue;
+      outcomes[index] = outcome;
+      return;
     }
 
     if (effect.kind === 'population-delta') {
       live.count = Math.max(0, source.count - actual);
       model.cells[cell].population -= actual;
       if (live.count <= 1e-12) removeGroup(model, cell, live.id);
-      outcomes.push(outcome);
-      continue;
+      outcomes[index] = outcome;
+      return;
     }
 
     const whole = Math.abs(source.count - actual) <= 1e-9;
@@ -232,8 +295,8 @@ function settleIndependentPopulation(
         applyGroupChange(live, source, effect);
       }
       outcome.resultingGroup = live.id;
-      outcomes.push(outcome);
-      continue;
+      outcomes[index] = outcome;
+      return;
     }
 
     live.count = Math.max(0, source.count - actual);
@@ -247,8 +310,8 @@ function settleIndependentPopulation(
       model.cells[cell].population -= actual;
       model.cells[destination].population += actual;
     }
-    outcomes.push(outcome);
-  }
+    outcomes[index] = outcome;
+  });
 
   return outcomes;
 }
@@ -268,14 +331,17 @@ export function settlePopulation(
   model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
   const actuals = effects.map(effect => {
     if (!isGroupEffect(effect)) return effect.amount;
+    if (plan.additiveStateGroups.has(effect.group)) return effect.amount;
     const source = groupIn(plan.groups, sourceCell(effect), effect.group);
     const demand = plan.demands.get(effect.group) ?? 0;
     return effect.amount * Math.min(1, source.count / Math.max(1e-12, demand));
   });
   const outcomes: PopulationOutcome[] = actuals.map(actual => ({ actual }));
+  const handled = new Set<number>();
+  settleAdditiveStateGroups(model, effects, plan, outcomes, handled);
   const byGroup = new Map<number, number[]>();
   effects.forEach((effect, index) => {
-    if (!isGroupEffect(effect)) return;
+    if (handled.has(index) || !isGroupEffect(effect)) return;
     const indices = byGroup.get(effect.group) ?? [];
     indices.push(index);
     byGroup.set(effect.group, indices);
@@ -327,7 +393,10 @@ export function settlePopulation(
   }
 
   effects.forEach((effect, index) => {
-    if (effect.kind !== 'population-delta' || effect.cause !== 'birth' || actuals[index] <= 0) return;
+    if (handled.has(index)
+      || effect.kind !== 'population-delta'
+      || effect.cause !== 'birth'
+      || actuals[index] <= 0) return;
     outcomes[index].resultingGroup = addBirth(model, effect, actuals[index]);
   });
   return outcomes;
