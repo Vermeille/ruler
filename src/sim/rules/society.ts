@@ -1,14 +1,29 @@
 import { clamp } from '../math';
-import { SECTORS, type Archetype, type DeepReadonly, type Effect, type Mapxel, type Model, type PopulationGroup, type Rule } from '../types';
+import { SECTORS, type Archetype, type DeepReadonly, type Effect, type Mapxel, type Model, type PopulationGroup, type Rule, type Sector } from '../types';
 import { changeToward, delta, isLand, read } from './helpers';
 import { viableJobs } from './wages';
 import { archetypeAt } from '../population/archetypes';
 import { averageWealthOf, employmentOf } from '../population/selectors';
 
+type SectorViability = Record<Sector, number>;
+
+function viabilityOf(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model>): SectorViability {
+  return {
+    agriculture: viableJobs(cell, model, 'agriculture'),
+    manufacturing: viableJobs(cell, model, 'manufacturing'),
+    services: viableJobs(cell, model, 'services'),
+    sports: viableJobs(cell, model, 'sports'),
+  };
+}
+
 /** Legacy mapxel projection used for diagnostics during the authority migration. */
-function employmentTarget(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model>): number {
+function employmentTarget(
+  cell: DeepReadonly<Mapxel>,
+  model: DeepReadonly<Model>,
+  viability: SectorViability,
+): number {
   const affordableJobs = SECTORS.reduce(
-    (sum, sector) => sum + cell[sector] * viableJobs(cell, model, sector), 0,
+    (sum, sector) => sum + cell[sector] * viability[sector], 0,
   );
   const ordinaryJobs = clamp(
     0.96
@@ -25,10 +40,11 @@ function desiredEmployedAdults(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
   adults: readonly DeepReadonly<PopulationGroup>[],
+  viability: SectorViability,
 ): number {
   const capacity = adults.reduce((sum, group) => {
     if (!group.occupation) return sum;
-    return sum + group.count * viableJobs(cell, model, group.occupation);
+    return sum + group.count * viability[group.occupation];
   }, 0);
   const ordinaryDemand = clamp(
     0.98
@@ -44,18 +60,19 @@ function desiredEmployedAdults(
 function employmentTransitions(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
+  viability: SectorViability,
 ): Effect[] {
   const adults = model.populationGroups[cell.id].filter(group => group.lifeStage === 'adult');
   if (!adults.length) return [];
   const employed = adults.reduce((sum, group) => sum + (group.employed ? group.count : 0), 0);
-  const target = desiredEmployedAdults(cell, model, adults);
+  const target = desiredEmployedAdults(cell, model, adults, viability);
   const change = target - employed;
   if (Math.abs(change) < 0.25) return [];
   const losingJobs = change < 0;
   let remaining = Math.abs(change);
   const candidates = adults.filter(group => group.employed === losingJobs).map(group => {
     const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
-    const sectorViability = group.occupation ? viableJobs(cell, model, group.occupation) : 0;
+    const sectorViability = group.occupation ? viability[group.occupation] : 0;
     const score = losingJobs
       ? (1 - sectorViability) * 0.6 + (1 - group.education) * 0.2 + (1 - archetype.traits.adaptability) * 0.2
       : sectorViability * 0.45 + archetype.traits.adaptability * 0.3 + group.education * 0.25;
@@ -165,10 +182,11 @@ export const societyRule: Rule = {
 
       // Keep the old mapxel employment proposal only as a diagnostic compatibility signal.
       // population.aggregate overwrites it from actual groups before the tick is summarized.
+      const viability = viabilityOf(cell, model);
       const affordableJobs = SECTORS.reduce(
-        (sum, sector) => sum + cell[sector] * viableJobs(cell, model, sector), 0,
+        (sum, sector) => sum + cell[sector] * viability[sector], 0,
       );
-      const jobsTarget = employmentTarget(cell, model);
+      const jobsTarget = employmentTarget(cell, model, viability);
       const employmentEvidence = affordableJobs < 0.6
         && cell.employment > jobsTarget + 0.1 && model.tick % 3 === 0
         ? {
@@ -212,7 +230,7 @@ export const societyRule: Rule = {
         changeToward(cell, 'infrastructure', infrastructureTarget, 0.06),
         changeToward(cell, 'pollution', pollutionTarget, 0.08),
         changeToward(cell, 'employment', jobsTarget, 0.1, employmentEvidence),
-        ...employmentTransitions(cell, model),
+        ...employmentTransitions(cell, model, viability),
         changeToward(cell, 'happiness', happinessTarget, 0.09),
         changeToward(cell, 'approval', approvalTarget, 0.12),
         changeToward(cell, 'sportsInterest', sportsInterestTarget, 0.06),
@@ -228,11 +246,11 @@ function migrationAppeal(
   group: DeepReadonly<PopulationGroup>,
   archetype: Archetype,
   cell: DeepReadonly<Mapxel>,
-  model: DeepReadonly<Model>,
+  jobChance: number,
+  culture: number,
   atHome: boolean,
 ): number {
   const wealthBuffer = clamp(group.wealth / 35);
-  const jobChance = group.occupation ? viableJobs(cell, model, group.occupation) : 0.5;
   const employment = atHome ? (group.employed ? 1 : 0.2) : 0.2 + jobChance * 0.8;
   const expectedIncome = atHome
     ? group.income
@@ -241,19 +259,20 @@ function migrationAppeal(
   const food = clamp(cell.foodSecurity + wealthBuffer * 0.08
     - Math.max(0, cell.price - 1) * (1 - wealthBuffer) * 0.12);
   const health = atHome ? group.health : cell.health;
-  const components: [number, number][] = [
-    [archetype.needs.food, food],
-    [archetype.needs.income, purchasingPower],
-    [archetype.needs.employment, employment],
-    [archetype.needs.health, health],
-    [archetype.needs.safety, 1 - cell.crime],
-    [archetype.needs.housing, clamp(1 - cell.population / 20_000)],
-    [archetype.needs.education, cell.education],
-    [archetype.needs.environment, 1 - cell.pollution],
-    [archetype.needs.culture, clamp(0.5 + model.policy.spending.culture * model.budget.funding)],
-  ];
-  const weight = components.reduce((sum, [need]) => sum + need, 0);
-  const lived = components.reduce((sum, [need, outcome]) => sum + need * outcome, 0) / weight;
+  const needs = archetype.needs;
+  const weight = needs.food + needs.income + needs.employment + needs.health + needs.safety
+    + needs.housing + needs.education + needs.environment + needs.culture;
+  const lived = (
+    needs.food * food
+    + needs.income * purchasingPower
+    + needs.employment * employment
+    + needs.health * health
+    + needs.safety * (1 - cell.crime)
+    + needs.housing * clamp(1 - cell.population / 20_000)
+    + needs.education * cell.education
+    + needs.environment * (1 - cell.pollution)
+    + needs.culture * culture
+  ) / weight;
   // Community mood is itself a projection of residents after population.aggregate.
   // It is a small shared contextual signal, not the source of the migration amount.
   const communityMood = atHome ? group.wellbeing : cell.happiness;
@@ -267,23 +286,31 @@ export const migrationRule: Rule = {
   run({ model }) {
     if (model.tick % 3 !== 0) return [];
     const effects: Effect[] = [];
+    const culture = clamp(0.5 + model.policy.spending.culture * model.budget.funding);
+    const viability = model.cells.map(cell => cell.biome === 'water' ? undefined : viabilityOf(cell, model));
 
-    for (const from of model.cells.filter(isLand)) {
+    for (const from of model.cells) {
+      if (!isLand(from)) continue;
       const movedByDestination = new Map<number, number>();
+      const originViability = viability[from.id]!;
       for (const group of model.populationGroups[from.id]) {
         if (group.lifeStage !== 'adult' || group.count <= 0) continue;
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
-        const originAppeal = migrationAppeal(group, archetype, from, model, true);
-        let best: { cell: DeepReadonly<Mapxel>; advantage: number } | undefined;
+        const originJobChance = group.occupation ? originViability[group.occupation] : 0.5;
+        const originAppeal = migrationAppeal(group, archetype, from, originJobChance, culture, true);
+        let bestCell: DeepReadonly<Mapxel> | undefined;
+        let bestAdvantage = -Infinity;
         for (const neighborId of model.neighbors[from.id]) {
           const to = model.cells[neighborId];
           if (to.biome === 'water') continue;
-          const advantage = migrationAppeal(group, archetype, to, model, false) - originAppeal;
-          if (!best || advantage > best.advantage || (advantage === best.advantage && to.id < best.cell.id)) {
-            best = { cell: to, advantage };
+          const jobChance = group.occupation ? viability[to.id]![group.occupation] : 0.5;
+          const advantage = migrationAppeal(group, archetype, to, jobChance, culture, false) - originAppeal;
+          if (advantage > bestAdvantage || (advantage === bestAdvantage && bestCell && to.id < bestCell.id)) {
+            bestCell = to;
+            bestAdvantage = advantage;
           }
         }
-        if (!best || best.advantage <= 0) continue;
+        if (!bestCell || bestAdvantage <= 0) continue;
 
         const means = clamp(group.wealth / 10, 0.2, 1);
         const hardship = 1 + (1 - group.wellbeing) * 0.4 + (group.employed ? 0 : 0.25);
@@ -292,7 +319,7 @@ export const migrationRule: Rule = {
           * means
           * hardship;
         const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
-        const rate = Math.min(0.009, best.advantage * 0.021 * propensity) * freedomMultiplier;
+        const rate = Math.min(0.009, bestAdvantage * 0.021 * propensity) * freedomMultiplier;
         const amount = group.count * rate;
         if (amount <= 1e-9) continue;
 
@@ -300,23 +327,23 @@ export const migrationRule: Rule = {
           kind: 'population-transfer',
           group: group.id,
           from: from.id,
-          to: best.cell.id,
+          to: bestCell.id,
           amount,
           evidence: amount >= 0.5 ? {
-            title: `${from.name}: archetype #${group.archetype} moves toward ${best.cell.name}`,
+            title: `${from.name}: archetype #${group.archetype} moves toward ${bestCell.name}`,
             detail: `${amount.toFixed(1)} people move because this group values the destination more under its own needs and circumstances. Employment status, income, reserves, mobility, community attachment, prices, services, safety, and environment all contribute.`,
-            cells: [from.id, best.cell.id],
+            cells: [from.id, bestCell.id],
             reads: [
               { cell: from.id, group: group.id, field: 'wealth', label: 'Group reserves' },
               { cell: from.id, group: group.id, field: 'wellbeing', label: 'Group wellbeing' },
               { cell: from.id, group: group.id, field: 'employed', label: 'Current employment' },
-              { cell: best.cell.id, field: 'price', label: 'Destination prices' },
-              { cell: best.cell.id, field: 'foodSecurity', label: 'Destination food access' },
+              { cell: bestCell.id, field: 'price', label: 'Destination prices' },
+              { cell: bestCell.id, field: 'foodSecurity', label: 'Destination food access' },
             ],
             parents: ['policy:law:freeMovement'],
           } : undefined,
         });
-        movedByDestination.set(best.cell.id, (movedByDestination.get(best.cell.id) ?? 0) + amount);
+        movedByDestination.set(bestCell.id, (movedByDestination.get(bestCell.id) ?? 0) + amount);
       }
 
       for (const [destination, movingPopulation] of movedByDestination) {
