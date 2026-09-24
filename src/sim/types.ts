@@ -372,6 +372,7 @@ export type Effect =
       amount: number;
       change: Partial<Record<PopulationStateField, number>>;
       evidence?: Evidence;
+      eventKey?: string;
     }
   | {
       kind: 'population-delta';
@@ -399,6 +400,7 @@ export const PHASES = [
   'migration',
   'adaptation',
   'events',
+  'projection',
 ] as const;
 
 export type Phase = typeof PHASES[number];
