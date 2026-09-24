@@ -496,6 +496,15 @@ export function commitEffects(
   } => proposal.effect.kind.startsWith('population-'));
   const populationEffects = populationProposals.map(proposal => proposal.effect);
   const populationPlan = planPopulation(snapshot, populationEffects);
+  const populationTouchedCells = new Set<number>();
+  for (const effect of populationEffects) {
+    if (effect.kind === 'population-transfer') {
+      populationTouchedCells.add(effect.from);
+      populationTouchedCells.add(effect.to);
+    } else {
+      populationTouchedCells.add(effect.cell);
+    }
+  }
 
   for (const { rule, effect } of proposals) {
     let actual = 0;
@@ -555,16 +564,34 @@ export function commitEffects(
   });
   Object.assign(game.provenance, provenanceWrites);
 
-  const populationCountChanged = proposals.some(({ effect }) =>
-    (effect.kind === 'delta' && effect.field === 'population')
-    || (effect.kind === 'transfer' && effect.resource === 'population')
-    || effect.kind === 'population-transfer'
-    || effect.kind === 'population-delta');
-  if (populationCountChanged) reconcileLegacyPopulation(game.model);
-  if (populationEffects.some(effect => effect.kind !== 'population-state'
-    || effect.amount < (populationPlan.groups.get(effect.group)?.group.count ?? 0))) {
-    mergePopulation(game.model);
+  let populationCountChanged = populationEffects.some(effect =>
+    effect.kind === 'population-transfer' || effect.kind === 'population-delta');
+  const reconciliationCells = new Set(populationTouchedCells);
+  for (const { effect } of proposals) {
+    if (effect.kind === 'delta' && effect.field === 'population') {
+      populationCountChanged = true;
+      reconciliationCells.add(effect.cell);
+    } else if (effect.kind === 'transfer' && effect.resource === 'population') {
+      populationCountChanged = true;
+      if (typeof effect.from === 'number') reconciliationCells.add(effect.from);
+      if (typeof effect.to === 'number') reconciliationCells.add(effect.to);
+    }
   }
+  if (populationCountChanged) reconcileLegacyPopulation(game.model, reconciliationCells);
+
+  let needsCompaction = false;
+  for (const effect of populationEffects) {
+    if (effect.kind !== 'population-state') {
+      needsCompaction = true;
+      break;
+    }
+    const sourceCount = populationPlan.groups.get(effect.group)?.group.count ?? 0;
+    if (effect.amount < sourceCount) {
+      needsCompaction = true;
+      break;
+    }
+  }
+  if (needsCompaction) mergePopulation(game.model, populationTouchedCells);
 }
 
 export function assertModel(model: DeepReadonly<Model>): void {
