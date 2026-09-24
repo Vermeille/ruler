@@ -5,14 +5,22 @@ export const ARCHETYPE_COUNT = 2048;
 export const ARCHETYPE_MODEL_VERSION = 1;
 
 const caches = new Map<string, Array<Archetype | undefined>>();
+let lastSeed = '';
+let lastVersion = -1;
+let lastCache: Array<Archetype | undefined> | undefined;
 
 function cacheFor(seed: string, version: number): Array<Archetype | undefined> {
+  if (seed === lastSeed && version === lastVersion && lastCache) return lastCache;
+
   const key = `${seed}|${version}`;
   let cache = caches.get(key);
   if (!cache) {
     cache = new Array<Archetype | undefined>(ARCHETYPE_COUNT);
     caches.set(key, cache);
   }
+  lastSeed = seed;
+  lastVersion = version;
+  lastCache = cache;
   return cache;
 }
 
