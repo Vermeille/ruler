@@ -56,6 +56,12 @@ function localCrimePressure(
 }
 
 /** Resident circumstances create crime pressure; policing and welfare change how much reaches the world. */
+// [I] CRIME-POVERTY1
+// [I] CRIME-UNEMPLOYMENT1
+// [I] CRIME-INEQUALITY1
+// [I] CRIME-POLICE1
+// [I] CRIME-WELFARE1
+// [I] CRIME-ADJUST1
 export const populationCrimeRule: Rule = {
   id: 'population.crime',
   direction: 'people-to-mapxel',
