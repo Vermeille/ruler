@@ -53,6 +53,37 @@ function inheritedArchetype(
   }).sort((a, b) => a.distance - b.distance || a.id - b.id)[0].id;
 }
 
+type WeightedMortality = { group: DeepReadonly<PopulationGroup>; weight: number };
+
+function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, weightTotal: number): Map<number, number> | null {
+  const scale = targetDeaths / weightTotal;
+  // Ordinary monthly mortality is tiny compared with every source cohort. In that common
+  // case proportional allocation is already the exact answer, so avoid constructing the
+  // redistribution maps/arrays needed only when a severe shock actually exhausts a group.
+  if (weighted.every(item => item.weight * scale <= item.group.count + 1e-12)) return null;
+
+  let remaining = targetDeaths;
+  let eligible = weighted;
+  const allocated = new Map<number, number>();
+  while (remaining > 1e-9 && eligible.length > 0) {
+    const totalWeight = eligible.reduce((sum, item) => sum + item.weight, 0);
+    let removed = 0;
+    const next: WeightedMortality[] = [];
+    for (const item of eligible) {
+      const prior = allocated.get(item.group.id) ?? 0;
+      const actual = Math.max(0, Math.min(item.group.count - prior,
+        remaining * item.weight / totalWeight));
+      allocated.set(item.group.id, prior + actual);
+      removed += actual;
+      if (item.group.count - prior - actual > 1e-9) next.push(item);
+    }
+    if (removed <= 1e-9) break;
+    remaining -= removed;
+    eligible = next;
+  }
+  return allocated;
+}
+
 /** Explicit group sources and sinks replace the former aggregate population delta. */
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
@@ -107,29 +138,10 @@ export const populationDemographicsRule: Rule = {
       const weighted = groups.map(group => ({ group, weight: group.count * mortalityWeight(group, cell.foodSecurity) }));
       const weightTotal = weighted.reduce((sum, item) => sum + item.weight, 0);
       if (targetDeaths <= 0 || weightTotal <= 0) continue;
-      let remaining = targetDeaths;
-      // Usually each share is far below its source count. Redistribute any capped share
-      // so even a severe food shock cannot remove more people than a group contains.
-      let eligible = weighted;
-      const allocated = new Map<number, number>();
-      while (remaining > 1e-9 && eligible.length > 0) {
-        const totalWeight = eligible.reduce((sum, item) => sum + item.weight, 0);
-        let removed = 0;
-        const next: typeof eligible = [];
-        for (const item of eligible) {
-          const prior = allocated.get(item.group.id) ?? 0;
-          const actual = Math.max(0, Math.min(item.group.count - prior,
-            remaining * item.weight / totalWeight));
-          allocated.set(item.group.id, prior + actual);
-          removed += actual;
-          if (item.group.count - prior - actual > 1e-9) next.push(item);
-        }
-        if (removed <= 1e-9) break;
-        remaining -= removed;
-        eligible = next;
-      }
+      const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
+      const scale = targetDeaths / weightTotal;
       for (const item of weighted) {
-        const amount = allocated.get(item.group.id) ?? 0;
+        const amount = allocated?.get(item.group.id) ?? item.weight * scale;
         if (amount <= 0) continue;
         effects.push({ kind: 'population-delta', cell: cell.id, group: item.group.id, amount, cause: 'death',
           evidence: cell.starvationDeaths > 1 && amount > 0.5 && model.tick % 3 === 0 ? {
