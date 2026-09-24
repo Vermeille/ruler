@@ -337,7 +337,7 @@ export interface History {
 }
 
 export interface Game {
-  version: 4;
+  version: 5;
   model: Model;
   initial: Summary;
   history: History[];
