@@ -5,6 +5,18 @@ import { buildStepCache } from '../src/sim/step-cache';
 import type { DeepReadonly, Rule, StepCache } from '../src/sim/types';
 import { createGame } from '../src/sim/world';
 
+const HUMAN_COMPATIBILITY_FIELDS = [
+  'employment',
+  'happiness',
+  'approval',
+  'children',
+  'seniors',
+  'agriculture',
+  'manufacturing',
+  'services',
+  'sports',
+] as const;
+
 test('step cache is derived from population groups rather than mapxel social projections', () => {
   const game = createGame('step-cache-authority', 12, 12, 48);
   const cell = game.model.cells.find(candidate => candidate.biome !== 'water')!;
@@ -65,9 +77,34 @@ test('default causal rules ignore persisted human compatibility projections', ()
 
   const ordinary = step(baseline);
   const fromPoisonedMirrors = step(poisoned);
+
+  // Projection writes are expressed as deltas, so old + (target - old) can differ by an
+  // IEEE-754 rounding bit for different old mirror values. They must still reconverge to
+  // the same authoritative human projection within numeric precision.
+  for (const cell of ordinary.model.cells) {
+    if (cell.biome === 'water') continue;
+    const poisonedCell = fromPoisonedMirrors.model.cells[cell.id];
+    for (const field of HUMAN_COMPATIBILITY_FIELDS) {
+      assert.ok(
+        Math.abs(poisonedCell[field] - cell[field]) < 1e-12,
+        `${field} projection in mapxel ${cell.id} must be independent of its persisted mirror`,
+      );
+    }
+  }
+
+  // Ignore the compatibility copies themselves for the exact comparison. Everything
+  // causal, including authoritative population groups, must remain bit-for-bit identical.
+  const ordinaryCausalModel = structuredClone(ordinary.model);
+  const poisonedCausalModel = structuredClone(fromPoisonedMirrors.model);
+  for (const cell of ordinaryCausalModel.cells) {
+    for (const field of HUMAN_COMPATIBILITY_FIELDS) cell[field] = 0;
+  }
+  for (const cell of poisonedCausalModel.cells) {
+    for (const field of HUMAN_COMPATIBILITY_FIELDS) cell[field] = 0;
+  }
   assert.deepEqual(
-    fromPoisonedMirrors.model,
-    ordinary.model,
+    poisonedCausalModel,
+    ordinaryCausalModel,
     'changing compatibility projections must not alter causal simulation results',
   );
 });
