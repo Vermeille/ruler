@@ -27,9 +27,12 @@ test('causal analysis discovers actual reads and outputs for stochastic, spatial
   const production = productionResult.analysis;
   assert.equal(productionResult.tracedRule.direction, 'people-to-mapxel');
   assert.ok(production.inputs.some(input => input.key === 'random.weather'));
-  assert.ok(production.inputs.some(input => input.key.startsWith('population.')),
-    'production should expose actual people-derived inputs rather than cell.employment');
+  assert.ok(production.inputs.some(input => input.key === 'people.employmentRate'));
+  assert.ok(production.inputs.some(input => input.key === 'people.averageHealth'));
+  assert.ok(production.inputs.some(input => input.key === 'people.occupationShares.agriculture'));
   assert.ok(!production.inputs.some(input => input.key === 'cell.employment'));
+  assert.ok(!production.inputs.some(input => input.key === 'population.employed'),
+    'aggregate production should expose the actual step-cache summary it consumes, not cache construction internals');
   assert.ok(production.outputs.some(output => output.key === 'delta.food'));
   assert.ok(production.jacobian.length > 0);
 
