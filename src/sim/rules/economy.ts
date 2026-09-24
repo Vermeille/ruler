@@ -11,6 +11,11 @@ import {
 import { changeToward, delta, isLand, read } from './helpers';
 import { unitOutput, viableJobs } from './wages';
 
+// [I] ECONOMY-PRODUCTION1
+// [I] ECONOMY-FARM1
+// [I] ECONOMY-MANUFACTURING1
+// [I] ECONOMY-SECTOR-RETURNS1
+// [I] ECONOMY-CASHFLOW1
 export const productionRule: Rule = {
   id: 'economy.production',
   direction: 'people-to-mapxel',
@@ -95,6 +100,9 @@ function tradeEvidence(
   };
 }
 
+// [I] ECONOMY-TRADE1
+// [I] ECONOMY-TRADE2
+// [I] ECONOMY-TRADE3
 export const tradeRule: Rule = {
   id: 'economy.neighbor-trade',
   direction: 'mapxel-to-mapxel',
@@ -148,6 +156,9 @@ export const tradeRule: Rule = {
   },
 };
 
+// [I] ECONOMY-CONSUMPTION1
+// [I] ECONOMY-SPOILAGE1
+// [I] ECONOMY-SPENDING1
 export const consumptionRule: Rule = {
   id: 'economy.households',
   direction: 'people-to-mapxel',
@@ -198,6 +209,9 @@ export const consumptionRule: Rule = {
   },
 };
 
+// [I] ECONOMY-PRICE1
+// [I] ECONOMY-PRICECONTROL1
+// [I] ECONOMY-BUSINESS1
 export const marketRule: Rule = {
   id: 'economy.businesses',
   direction: 'mapxel-to-mapxel',
