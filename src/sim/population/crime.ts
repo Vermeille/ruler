@@ -1,13 +1,17 @@
 import { clamp } from '../math';
-import { averageWealthOf } from './selectors';
-import type { DeepReadonly, Model, PopulationGroup, Rule } from '../types';
+import { resolveStepCache } from '../step-cache';
+import type { DeepReadonly, Model, PopulationGroup, Rule, StepCache } from '../types';
 import { changeToward } from '../rules/helpers';
 
 function groupPoverty(group: DeepReadonly<PopulationGroup>): number {
   return clamp((24 - group.wealth) / 24);
 }
 
-function localCrimePressure(model: DeepReadonly<Model>, cellId: number): {
+function localCrimePressure(
+  model: DeepReadonly<Model>,
+  cache: DeepReadonly<StepCache>,
+  cellId: number,
+): {
   target: number;
   wealth: number;
   neighborWealth: number;
@@ -15,20 +19,16 @@ function localCrimePressure(model: DeepReadonly<Model>, cellId: number): {
   representative?: DeepReadonly<PopulationGroup>;
 } {
   const groups = model.populationGroups[cellId];
-  const population = groups.reduce((sum, group) => sum + group.count, 0);
-  const adults = groups.reduce((sum, group) =>
-    sum + (group.lifeStage === 'adult' ? group.count : 0), 0);
-  const unemployedAdults = groups.reduce((sum, group) =>
-    sum + (group.lifeStage === 'adult' && !group.employed ? group.count : 0), 0);
-  const unemployment = adults > 0 ? unemployedAdults / adults : 0;
+  const people = cache.peopleByCell[cellId];
+  const unemployment = people.adultPopulation > 0 ? 1 - people.employmentRate : 0;
 
-  const poverty = population > 0
-    ? groups.reduce((sum, group) => sum + group.count * groupPoverty(group), 0) / population
+  const poverty = people.population > 0
+    ? groups.reduce((sum, group) => sum + group.count * groupPoverty(group), 0) / people.population
     : 0;
-  const wealth = averageWealthOf(model, cellId);
+  const wealth = people.averageWealth;
   const neighbors = model.neighbors[cellId].filter(id => model.cells[id].biome !== 'water');
   const neighborWealth = neighbors.length > 0
-    ? neighbors.reduce((sum, id) => sum + averageWealthOf(model, id), 0) / neighbors.length
+    ? neighbors.reduce((sum, id) => sum + cache.peopleByCell[id].averageWealth, 0) / neighbors.length
     : wealth;
   const inequality = clamp((neighborWealth - wealth) / 40);
   const police = model.policy.spending.police * model.budget.funding;
@@ -58,12 +58,14 @@ function localCrimePressure(model: DeepReadonly<Model>, cellId: number): {
 /** Resident circumstances create crime pressure; policing and welfare change how much reaches the world. */
 export const populationCrimeRule: Rule = {
   id: 'population.crime',
+  direction: 'people-to-mapxel',
   phase: 'behavior',
   description: 'Resident poverty, unemployment, and nearby inequality create crime pressure; policing and welfare damp it.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.flatMap(cell => {
-      if (cell.biome === 'water' || cell.population <= 0) return [];
-      const pressure = localCrimePressure(model, cell.id);
+      if (cell.biome === 'water' || peopleCache.peopleByCell[cell.id].population <= 0) return [];
+      const pressure = localCrimePressure(model, peopleCache, cell.id);
       const shouldExplain = Math.abs(pressure.target - cell.crime) > 0.06
         && model.tick % 3 === 0;
       const evidence = shouldExplain

@@ -1,6 +1,7 @@
 import { assertModel, commitEffects, orderRules } from './engine';
 import { deepFreeze, randomAt, summarize } from './math';
 import { writeMonthlyNews } from './narrative';
+import { assertRuleEffects } from './rule-direction';
 import { defaultRules } from './rules';
 import { buildStepCache } from './step-cache';
 import {
@@ -11,12 +12,14 @@ import {
   type Model,
   type Phase,
   type Rule,
+  type RuleDirection,
   type StepCache,
   type Summary,
 } from './types';
 
 export interface RuleTrace {
   id: string;
+  direction: RuleDirection;
   description: string;
   effects: Effect[];
 }
@@ -86,14 +89,18 @@ function traceRule(
   lastEvents: Readonly<Record<string, number>>,
   rule: Rule,
 ): RuleTrace {
+  const randomNamespace = rule.randomNamespace ?? rule.id;
   const random = (cell: number, channel = '') => {
-    return randomAt(snapshot.seed, snapshot.tick, rule.id, cell, channel);
+    return randomAt(snapshot.seed, snapshot.tick, randomNamespace, cell, channel);
   };
+  const effects = rule.run({ model: snapshot, cache, random, lastEvents });
+  assertRuleEffects(rule, effects);
 
   return {
     id: rule.id,
+    direction: rule.direction,
     description: rule.description,
-    effects: rule.run({ model: snapshot, cache, random, lastEvents }),
+    effects,
   };
 }
 

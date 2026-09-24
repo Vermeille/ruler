@@ -425,6 +425,7 @@ export const PHASES = [
   'aging',
   'lifeStage',
   'demographics',
+  'deprivation',
   'migration',
   'adaptation',
   'events',
@@ -433,12 +434,21 @@ export const PHASES = [
 
 export type Phase = typeof PHASES[number];
 
+export const RULE_DIRECTIONS = [
+  'mapxel-to-mapxel',
+  'mapxel-to-people',
+  'people-to-mapxel',
+  'people-to-people',
+] as const;
+
+export type RuleDirection = typeof RULE_DIRECTIONS[number];
+
 export interface RuleContext {
   model: DeepReadonly<Model>;
   /**
-   * Immutable population summaries derived once at the beginning of step().
-   * The engine and trace path always supply this. It remains optional only so
-   * isolated rule-unit helpers can migrate independently before rules consume it.
+   * step() and traceStep() always provide the one shared step cache. It is optional
+   * only for isolated rule execution in tests/devtools, where rules derive a local
+   * cache from the supplied immutable snapshot.
    */
   cache?: DeepReadonly<StepCache>;
   random: (cell: number, channel?: string) => number;
@@ -447,8 +457,14 @@ export interface RuleContext {
 
 export interface Rule {
   id: string;
+  direction: RuleDirection;
   phase: Phase;
   after?: readonly string[];
+  /**
+   * Rules that are split only to respect causal direction can share a random
+   * namespace so keyed stochastic choices remain identical across the split.
+   */
+  randomNamespace?: string;
   description: string;
   run(context: RuleContext): Effect[];
 }

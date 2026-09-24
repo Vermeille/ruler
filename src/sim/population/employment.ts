@@ -1,4 +1,5 @@
 import { clamp } from '../math';
+import { resolveStepCache } from '../step-cache';
 import type {
   DeepReadonly,
   Effect,
@@ -16,12 +17,13 @@ export type SectorViability = Record<Sector, number>;
 export function viabilityOf(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
+  averageWorkerHealth = cell.health,
 ): SectorViability {
   return {
-    agriculture: viableJobs(cell, model, 'agriculture'),
-    manufacturing: viableJobs(cell, model, 'manufacturing'),
-    services: viableJobs(cell, model, 'services'),
-    sports: viableJobs(cell, model, 'sports'),
+    agriculture: viableJobs(cell, model, 'agriculture', averageWorkerHealth),
+    manufacturing: viableJobs(cell, model, 'manufacturing', averageWorkerHealth),
+    services: viableJobs(cell, model, 'services', averageWorkerHealth),
+    sports: viableJobs(cell, model, 'sports', averageWorkerHealth),
   };
 }
 
@@ -111,13 +113,19 @@ function employmentTransitions(
 /** Firms create job capacity in the world; actual residents gain or lose employment here. */
 export const populationEmploymentRule: Rule = {
   id: 'population.employment',
+  direction: 'mapxel-to-people',
   phase: 'society',
   description: 'Local job capacity changes the employment status of actual adult population groups.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
     for (const cell of model.cells) {
       if (cell.biome === 'water') continue;
-      effects.push(...employmentTransitions(cell, model, viabilityOf(cell, model)));
+      effects.push(...employmentTransitions(
+        cell,
+        model,
+        viabilityOf(cell, model, peopleCache.peopleByCell[cell.id].averageHealth),
+      ));
     }
     return effects;
   },

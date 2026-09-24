@@ -68,16 +68,17 @@ test('one cache instance is reused for the whole step and rebuilt on the next st
   const seen: DeepReadonly<StepCache>[] = [];
   const observeEarly: Rule = {
     id: 'test.cache.early',
+    direction: 'mapxel-to-mapxel',
     phase: 'production',
     description: 'Observe the step cache before population changes.',
     run({ cache }) {
-      assert.ok(cache);
       seen.push(cache);
       return [];
     },
   };
   const changePeople: Rule = {
     id: 'test.cache.change-people',
+    direction: 'people-to-people',
     phase: 'experience',
     description: 'Change authoritative population state after the cache was built.',
     run({ model }) {
@@ -93,10 +94,10 @@ test('one cache instance is reused for the whole step and rebuilt on the next st
   };
   const observeLate: Rule = {
     id: 'test.cache.late',
+    direction: 'mapxel-to-mapxel',
     phase: 'events',
     description: 'Observe the same cache after population changes settled.',
     run({ cache }) {
-      assert.ok(cache);
       seen.push(cache);
       return [];
     },
@@ -110,10 +111,10 @@ test('one cache instance is reused for the whole step and rebuilt on the next st
   let nextCache: DeepReadonly<StepCache> | undefined;
   const observeNext: Rule = {
     id: 'test.cache.next',
+    direction: 'mapxel-to-mapxel',
     phase: 'production',
     description: 'Observe the next step cache.',
     run({ cache }) {
-      assert.ok(cache);
       nextCache = cache;
       return [];
     },

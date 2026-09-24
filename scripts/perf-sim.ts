@@ -4,6 +4,7 @@ import { enact } from '../src/sim/policy';
 import { step } from '../src/sim/engine';
 import { deepFreeze, randomAt } from '../src/sim/math';
 import { defaultRules, migrationRule } from '../src/sim/rules';
+import { buildStepCache } from '../src/sim/step-cache';
 import type { Model } from '../src/sim/types';
 
 let game = enact(createGame('alder-42', 18, 14, 48), {
@@ -70,12 +71,14 @@ function reportGroupSizes(): void {
 }
 
 function reportMigrationAmounts(): void {
+  const namespace = migrationRule.randomNamespace ?? migrationRule.id;
   const effects = migrationRule.run({
     model: game.model,
+    cache: buildStepCache(game.model),
     random: (cell, channel = '') => randomAt(
       game.model.seed,
       game.model.tick,
-      migrationRule.id,
+      namespace,
       cell,
       channel,
     ),

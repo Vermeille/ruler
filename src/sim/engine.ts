@@ -4,6 +4,7 @@ import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
 import { mergePopulation } from './population/merge';
 import { planPopulation, settlePopulation } from './population/settlement';
+import { assertRuleDirection, assertRuleEffects } from './rule-direction';
 import {
   applyAccumulatedDeltas,
   planResourceSettlement,
@@ -52,6 +53,7 @@ export function orderRules(rules: readonly Rule[]): Rule[] {
 
   function visit(rule: Rule): void {
     if (done.has(rule.id)) return;
+    assertRuleDirection(rule);
     if (!PHASES.includes(rule.phase)) {
       throw new Error(`Unknown phase: ${rule.phase}`);
     }
@@ -227,10 +229,12 @@ function proposalsForPhase(
   const lastEvents = Object.freeze({ ...game.lastEvents });
 
   for (const rule of rules) {
+    const randomNamespace = rule.randomNamespace ?? rule.id;
     const random = (cell: number, channel = '') => {
-      return randomAt(snapshot.seed, snapshot.tick, rule.id, cell, channel);
+      return randomAt(snapshot.seed, snapshot.tick, randomNamespace, cell, channel);
     };
     const effects = rule.run({ model: snapshot, cache, random, lastEvents });
+    assertRuleEffects(rule, effects);
     for (const effect of effects) proposals.push({ rule: rule.id, effect });
   }
 
