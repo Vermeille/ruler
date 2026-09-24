@@ -96,7 +96,8 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
   await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
   await expect(lens).toContainText('society.migration');
-  await expect(graph.locator('.rule-graph-node-input')).toContainText(['Group Wellbeing']);
+  await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Wealth' })).toBeVisible();
+  await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Employed' })).toBeVisible();
   await expect(graph.locator('.rule-graph-node-output')).toContainText(['Population Group Flow']);
   await expect(graph.locator('.rule-graph-node-consumer').first()).toBeVisible();
   await expect(graph.locator('.rule-graph-feedback-edge')).toBeVisible();
