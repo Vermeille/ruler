@@ -74,3 +74,46 @@ test('people-to-people rules may emit population effects', () => {
   };
   assert.doesNotThrow(() => step(game, [rule]));
 });
+
+test('mapxel-to-people rules may inspect current person state', () => {
+  const game = createGame('direction-flexible-map-to-people-reads', 12, 12, 4);
+  const cell = game.model.cells.find(candidate => candidate.biome !== 'water')!;
+  const group = game.model.populationGroups[cell.id][0];
+  const rule: Rule = {
+    id: 'test.flexible-mapxel-to-people-reads',
+    direction: 'mapxel-to-people',
+    phase: 'experience',
+    description: '',
+    run: ({ model }) => {
+      const current = model.populationGroups[cell.id].find(candidate => candidate.id === group.id)!;
+      const susceptibility = 1 - current.health;
+      return [{
+        kind: 'population-state',
+        cell: cell.id,
+        group: group.id,
+        amount: group.count,
+        change: { wellbeing: -0.01 * susceptibility },
+      }];
+    },
+  };
+  assert.doesNotThrow(() => step(game, [rule]));
+});
+
+test('people-to-mapxel rules may inspect current mapxel context', () => {
+  const game = createGame('direction-flexible-people-to-mapxel-reads', 12, 12, 4);
+  const cell = game.model.cells.find(candidate => candidate.biome !== 'water')!;
+  const rule: Rule = {
+    id: 'test.flexible-people-to-mapxel-reads',
+    direction: 'people-to-mapxel',
+    phase: 'behavior',
+    description: '',
+    run: ({ model }) => {
+      const local = model.cells[cell.id];
+      const residents = model.populationGroups[cell.id]
+        .reduce((sum, group) => sum + group.count, 0);
+      const pressure = residents / Math.max(1, local.infrastructure * 10_000);
+      return [{ kind: 'delta', cell: cell.id, field: 'crime', amount: pressure * 0.001 }];
+    },
+  };
+  assert.doesNotThrow(() => step(game, [rule]));
+});
