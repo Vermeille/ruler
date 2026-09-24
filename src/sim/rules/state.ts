@@ -5,6 +5,7 @@ import { isLand } from './helpers';
 
 export const taxationRule: Rule = {
   id: 'state.taxation',
+  direction: 'mapxel-to-mapxel',
   phase: 'taxation',
   description: 'Collect income and business taxes on measured output, limited by liquid private funds.',
   run({ model }) {
@@ -44,6 +45,7 @@ export const taxationRule: Rule = {
 
 export const financingRule: Rule = {
   id: 'state.financing',
+  direction: 'mapxel-to-mapxel',
   phase: 'financing',
   description: 'Borrow only to cover a cash shortfall, up to a transparent per-resident credit limit.',
   run({ model }) {
@@ -74,16 +76,17 @@ export const financingRule: Rule = {
 
 export const fiscalRule: Rule = {
   id: 'state.services',
+  direction: 'mapxel-to-mapxel',
   phase: 'fiscal',
   description: 'Public services and targeted subsidies compete for a finite budget. Unfunded services weaken rather than creating money.',
-  run({ model }) {
+  run({ model, cache }) {
     const forecast = forecastBudget(model);
     const interest = Math.max(0, Math.min(model.treasury, forecast.interest));
     const availableForServices = Math.max(0, model.treasury - interest);
     const funding = forecast.spending > 0
       ? clamp(availableForServices / forecast.spending)
       : 1;
-    const reserve = model.cells.reduce((total, cell) => total + cell.population, 0) * 6;
+    const reserve = cache.peopleByCell.reduce((total, people) => total + people.population, 0) * 6;
     const surplus = Math.max(0, availableForServices - forecast.spending * funding - reserve);
     const principalRepaid = Math.min(model.debt, surplus);
     const effects: Effect[] = [
@@ -100,12 +103,13 @@ export const fiscalRule: Rule = {
       .reduce((sum, amount) => sum + amount, 0);
 
     for (const cell of model.cells.filter(isLand)) {
-      const basicServices = cell.population * serviceRate * funding;
+      const people = cache.peopleByCell[cell.id];
+      const basicServices = people.population * serviceRate * funding;
       const subsidyRate = SECTORS.reduce(
-        (sum, sector) => sum + cell[sector] * subsidyFor(model, cell, sector),
+        (sum, sector) => sum + people.occupationShares[sector] * subsidyFor(model, cell, sector),
         0,
       );
-      const subsidies = cell.population * subsidyRate * funding;
+      const subsidies = people.population * subsidyRate * funding;
 
       effects.push({
         kind: 'transfer',
