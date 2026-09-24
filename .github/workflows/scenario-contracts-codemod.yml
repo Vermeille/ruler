@@ -19,12 +19,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
+      - run: python scripts/fix-recalibration-script.py
       - run: python scripts/recalibrate-scenario-contracts.py
       - run: npm test
       - run: npm run build
       - name: Commit validated scenario contracts
         run: |
-          rm scripts/recalibrate-scenario-contracts.py .github/workflows/scenario-contracts-codemod.yml
+          rm scripts/fix-recalibration-script.py scripts/recalibrate-scenario-contracts.py .github/workflows/scenario-contracts-codemod.yml
           rm -f scripts/behavior-probe.ts .github/workflows/behavior-probe.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
