@@ -46,6 +46,10 @@ function isSafeString(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
 }
 
+function clampValue(value: number, minimum = 0, maximum = 1): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
 function parseSave(text: string): Record<string, unknown> {
   let data: unknown;
 
@@ -56,11 +60,104 @@ function parseSave(text: string): Record<string, unknown> {
   }
 
   if (!isRecord(data) || typeof data.version !== 'number'
-    || ![1, 2, 3, 4].includes(data.version) || !isRecord(data.model)) {
+    || ![1, 2, 3, 4, 5].includes(data.version) || !isRecord(data.model)) {
     return fail();
   }
 
   return data;
+}
+
+function scopeContainsLegacyCell(scope: unknown, cell: Record<string, unknown>): boolean {
+  if (!isRecord(scope)) return false;
+  if (scope.kind === 'national') return true;
+  if (scope.kind === 'region') return scope.id === cell.region;
+  return scope.kind === 'cells'
+    && Array.isArray(scope.ids)
+    && scope.ids.includes(cell.id);
+}
+
+function legacySubsidySignature(
+  model: Record<string, unknown>,
+  cell: Record<string, unknown>,
+): number {
+  if (!isRecord(model.policy) || !isRecord(model.policy.subsidies)) return 0;
+  const amounts = new Map<string, number>();
+  for (const sector of SECTORS) {
+    const value = model.policy.subsidies[sector];
+    amounts.set(sector, isFiniteNumber(value) ? value : 0);
+  }
+  if (Array.isArray(model.localSubsidies)) {
+    for (const local of model.localSubsidies) {
+      if (!isRecord(local)
+        || typeof local.sector !== 'string'
+        || !SECTORS.includes(local.sector as typeof SECTORS[number])
+        || !isFiniteNumber(local.amount)
+        || !scopeContainsLegacyCell(local.scope, cell)) continue;
+      amounts.set(local.sector, local.amount);
+    }
+  }
+  return clampValue(SECTORS.reduce((sum, sector) => sum + (amounts.get(sector) ?? 0), 0)
+    / (SECTORS.length * 3));
+}
+
+function migrateVersionFour(model: Record<string, unknown>): void {
+  if (!Array.isArray(model.cells) || !Array.isArray(model.populationGroups)
+    || !isRecord(model.policy) || !isRecord(model.policy.spending)
+    || !isRecord(model.policy.laws) || !isRecord(model.budget)) return fail();
+
+  const tax = clampValue((Number(model.policy.incomeTax) + Number(model.policy.businessTax)) / 1.3);
+  const spending = clampValue(SERVICES.reduce((sum, service) => {
+    const value = model.policy.spending[service];
+    return sum + (isFiniteNumber(value) ? value : 0);
+  }, 0) / 14);
+  const wage = clampValue(Number(model.policy.minimumWage) / 10);
+  const rights = LAWS.reduce((sum, law) => sum + (model.policy.laws[law] === true ? 1 : 0), 0) / 4;
+  const funding = isFiniteNumber(model.budget.funding) ? model.budget.funding : 1;
+  const healthSpending = isFiniteNumber(model.policy.spending.health) ? model.policy.spending.health : 0;
+  const educationSpending = isFiniteNumber(model.policy.spending.education) ? model.policy.spending.education : 0;
+
+  for (const groups of model.populationGroups) {
+    if (!Array.isArray(groups)) return fail();
+    for (const group of groups) {
+      if (!isRecord(group)) return fail();
+      if (!isFiniteNumber(group.outlook)) group.outlook = 0;
+      if (!isFiniteNumber(group.mobilization)) group.mobilization = 0;
+      if (!isFiniteNumber(group.infection)) group.infection = 0.006;
+      if (!isFiniteNumber(group.salienceFood)) group.salienceFood = 1;
+      if (!isFiniteNumber(group.salienceHealth)) group.salienceHealth = 1;
+      if (!isFiniteNumber(group.salienceSafety)) group.salienceSafety = 1;
+      if (!isFiniteNumber(group.salienceEducation)) group.salienceEducation = 1;
+    }
+  }
+
+  for (const cell of model.cells) {
+    if (!isRecord(cell) || !isFiniteNumber(cell.population)) return fail();
+    const population = cell.population;
+    const childShare = isFiniteNumber(cell.children) ? cell.children : 0.21;
+    if (!isFiniteNumber(cell.healthCapacity)) {
+      cell.healthCapacity = population * clampValue(0.58 + healthSpending * funding, 0.45, 1.35);
+    }
+    if (!isFiniteNumber(cell.educationCapacity)) {
+      cell.educationCapacity = population * clampValue(
+        childShare * (0.72 + educationSpending * funding * 1.35) + 0.035,
+        0.04,
+        0.6,
+      );
+    }
+    if (!isFiniteNumber(cell.healthDisruption)) cell.healthDisruption = 0;
+    if (!isFiniteNumber(cell.educationDisruption)) cell.educationDisruption = 0;
+    if (!isFiniteNumber(cell.infrastructureDisruption)) cell.infrastructureDisruption = 0;
+    if (!isFiniteNumber(cell.unrest)) cell.unrest = 0;
+    if (!isFiniteNumber(cell.infection)) cell.infection = 0.006;
+    if (!isFiniteNumber(cell.policyAdjustment)) cell.policyAdjustment = 0;
+    if (!isFiniteNumber(cell.policyTaxBaseline)) cell.policyTaxBaseline = tax;
+    if (!isFiniteNumber(cell.policySpendingBaseline)) cell.policySpendingBaseline = spending;
+    if (!isFiniteNumber(cell.policyWageBaseline)) cell.policyWageBaseline = wage;
+    if (!isFiniteNumber(cell.policyRightsBaseline)) cell.policyRightsBaseline = rights;
+    if (!isFiniteNumber(cell.policySubsidyBaseline)) {
+      cell.policySubsidyBaseline = legacySubsidySignature(model, cell);
+    }
+  }
 }
 
 function migrateSave(data: Record<string, unknown>): void {
@@ -98,6 +195,11 @@ function migrateSave(data: Record<string, unknown>): void {
     model.nextPopulationGroupId = generated.nextId;
     model.archetypeModelVersion = ARCHETYPE_MODEL_VERSION;
     data.version = 4;
+  }
+
+  if (data.version === 4) {
+    migrateVersionFour(model);
+    data.version = 5;
   }
 }
 
