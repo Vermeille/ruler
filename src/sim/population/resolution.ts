@@ -1,10 +1,10 @@
-export const POPULATION_COHORT_QUANTUM = 0.05;
+export const POPULATION_COHORT_QUANTUM = 1;
 
 /**
  * Turn a continuous expected flow into a representable cohort amount without biasing its
- * expectation. Tiny flows happen less often as one quantum; large flows retain their whole
- * quanta plus a stochastically rounded remainder. The supplied draw keeps the engine fully
- * deterministic under its keyed random stream.
+ * expectation. Population counts are measured in people, so independently tracked discrete
+ * choices use one person as their normal resolution. Tiny source groups can still move whole.
+ * The supplied draw keeps the engine fully deterministic under its keyed random stream.
  */
 export function quantizeCohortFlow(
   desired: number,
