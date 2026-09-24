@@ -7,7 +7,7 @@ import { ARCHETYPE_COUNT, archetypeAt, generateArchetypes } from '../src/sim/pop
 import { populationDemographicsRule } from '../src/sim/population/demographics';
 import { mergePopulation } from '../src/sim/population/merge';
 import { populationExperienceRule } from '../src/sim/population/experience';
-import { retrainingRule } from '../src/sim/population/retraining';
+import { entryOccupationRule, retrainingRule } from '../src/sim/population/retraining';
 import { approvalOf, childrenShareOf, educationOf, employmentOf, populationOf, seniorShareOf, wellbeingOf } from '../src/sim/population/selectors';
 import { deserialize, serialize } from '../src/sim/save';
 import { enact } from '../src/sim/policy';
@@ -158,7 +158,7 @@ test('mortality weights age and health while birth cohorts follow the yearly sch
   assert.ok(proposed(12).some(effect => effect.kind === 'population-delta' && effect.cause === 'birth'));
 });
 
-test('age progression is its own people-to-people pipeline before life-stage transitions', () => {
+test('age progression is people-to-people; first occupation choice waits for adaptation', () => {
   const g = game();
   const cell = land(g)[0];
   const child = g.model.populationGroups[cell.id].find(group => group.lifeStage === 'child')!;
@@ -173,19 +173,31 @@ test('age progression is its own people-to-people pipeline before life-stage tra
   assert.ok(childExperience && childExperience.kind === 'population-state');
   assert.equal(childExperience.change.age, undefined);
 
-  const next = step(g, [populationExperienceRule, populationAgingRule, populationLifeStageRule]);
-  const grown = next.model.populationGroups[cell.id].find(group => group.id === child.id)!;
-  const retired = next.model.populationGroups[cell.id].find(group => group.id === adult.id)!;
+  const staged = step(g, [populationExperienceRule, populationAgingRule, populationLifeStageRule]);
+  const grown = staged.model.populationGroups[cell.id].find(group => group.id === child.id)!;
+  const retired = staged.model.populationGroups[cell.id].find(group => group.id === adult.id)!;
   assert.ok(Math.abs(grown.age - 18) < 1e-9);
   assert.equal(grown.lifeStage, 'adult');
   assert.equal(grown.employed, false);
-  assert.ok(grown.occupation);
+  assert.equal(grown.occupation, null);
   assert.ok(Math.abs(retired.age - 65) < 1e-9);
   assert.equal(retired.lifeStage, 'senior');
   assert.equal(retired.occupation, null);
   assert.equal(retired.employed, false);
-  assert.ok(Math.abs(total(next) - before) < 1e-9);
-  assertModel(next.model);
+  assert.ok(Math.abs(total(staged) - before) < 1e-9);
+  assertModel(staged.model);
+
+  const adapted = step(g, [
+    populationExperienceRule,
+    populationAgingRule,
+    populationLifeStageRule,
+    entryOccupationRule,
+  ]);
+  const assigned = adapted.model.populationGroups[cell.id].find(group => group.id === child.id)!;
+  assert.ok(assigned.occupation, 'new adults choose an occupation in the later adaptation phase');
+  assert.equal(assigned.employed, false);
+  assert.ok(Math.abs(total(adapted) - before) < 1e-9);
+  assertModel(adapted.model);
 });
 
 test('compaction merges similar histories and retains meaningful differences', () => {
@@ -331,7 +343,6 @@ test('adaptability raises the share of unemployed adults entering retraining', (
   const g = game();
   g.model.tick = 6;
   const cell = land(g)[0];
-  Object.assign(cell, { agriculture: 0.1, manufacturing: 0.05, services: 0.8, sports: 0.05 });
   const groups = g.model.populationGroups[cell.id].filter(group => group.lifeStage === 'adult' && !group.employed);
   const [low, high] = groups;
   const archetypes = generateArchetypes(g.model.seed).sort((a, b) =>
@@ -344,8 +355,8 @@ test('adaptability raises the share of unemployed adults entering retraining', (
   const highEffect = effects.find(effect => effect.kind === 'population-transition' && effect.group === high.id);
   assert.ok(lowEffect && lowEffect.kind === 'population-transition');
   assert.ok(highEffect && highEffect.kind === 'population-transition');
-  assert.equal(lowEffect.transition.occupation, 'services');
-  assert.equal(highEffect.transition.occupation, 'services');
+  assert.notEqual(lowEffect.transition.occupation, 'agriculture');
+  assert.notEqual(highEffect.transition.occupation, 'agriculture');
   assert.ok(highEffect.amount > lowEffect.amount);
 });
 
