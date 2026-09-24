@@ -8,13 +8,13 @@ import { wellbeingEffects } from './society/wellbeing';
 export { migrationRule } from './society/migration';
 
 /**
- * The society phase is intentionally a thin orchestrator. Each behavior domain owns its formulas
- * and evidence in src/sim/rules/society/, while this rule preserves their phase and effect order.
+ * The society phase is intentionally a thin orchestrator. World conditions change here; mutable
+ * human state changes in population rules and is projected back to mapxels only in projection.
  */
 export const societyRule: Rule = {
   id: 'society.wellbeing',
   phase: 'society',
-  description: 'People-facing conditions respond to poverty, actual employment, services, health, food, pollution, and civil liberties.',
+  description: 'Local crime, services, employment opportunities, sports interest, and deprivation respond to residents, policy, and world conditions.',
   run({ model }) {
     const effects: Effect[] = [];
     const wealthByCell = model.cells.map(cell => (
@@ -30,12 +30,7 @@ export const societyRule: Rule = {
 
       effects.push(...conditionEffects(cell, model, wealthByCell, actualEmployment));
       effects.push(...employmentEffects(cell, model));
-      effects.push(...wellbeingEffects(
-        cell,
-        model,
-        wealthByCell[cell.id],
-        actualEmployment,
-      ));
+      effects.push(...wellbeingEffects(cell, model));
     }
 
     return effects;
