@@ -7,11 +7,9 @@ type GroupEffect = Exclude<PopulationEffect, { kind: 'population-delta' }>
   | (Extract<PopulationEffect, { kind: 'population-delta' }> & { group: number; cause: 'death' });
 
 type GroupLocation = { cell: number; index: number; group: DeepReadonly<PopulationGroup> };
-type GroupLocations = Array<GroupLocation | undefined>;
-type LiveGroups = Array<PopulationGroup | undefined>;
 
-function groupIn(groups: GroupLocations, cell: number, id: number): DeepReadonly<PopulationGroup> {
-  const found = groups[id];
+function groupIn(groups: Map<number, GroupLocation>, cell: number, id: number): DeepReadonly<PopulationGroup> {
+  const found = groups.get(id);
   if (!found || found.cell !== cell) throw new Error(`Invalid population group ${id} in mapxel ${cell}.`);
   return found.group;
 }
@@ -27,7 +25,7 @@ function sourceCell(effect: GroupEffect): number {
 function validatePopulationEffect(
   snapshot: DeepReadonly<Model>,
   effect: PopulationEffect,
-  groups: GroupLocations,
+  groups: Map<number, GroupLocation>,
 ): void {
   if (!Number.isFinite(effect.amount) || effect.amount < 0) throw new Error('Invalid population effect amount.');
   if (isGroupEffect(effect)) {
@@ -90,8 +88,8 @@ function validateGroupState(group: Omit<PopulationGroup, 'id' | 'archetype' | 'c
 }
 
 export interface PopulationPlan {
-  demands: Float64Array;
-  groups: GroupLocations;
+  demands: Map<number, number>;
+  groups: Map<number, GroupLocation>;
   independent: boolean;
 }
 
@@ -101,20 +99,19 @@ export interface PopulationOutcome {
 }
 
 export function planPopulation(snapshot: DeepReadonly<Model>, effects: readonly PopulationEffect[]): PopulationPlan {
-  const demands = new Float64Array(snapshot.nextPopulationGroupId);
-  const seen = new Uint8Array(snapshot.nextPopulationGroupId);
-  const groups: GroupLocations = new Array(snapshot.nextPopulationGroupId);
+  const demands = new Map<number, number>();
+  const groups = new Map<number, GroupLocation>();
   let independent = true;
   if (effects.length === 0) return { demands, groups, independent };
   snapshot.populationGroups.forEach((cellGroups, cell) => {
-    cellGroups.forEach((group, index) => { groups[group.id] = { cell, index, group }; });
+    cellGroups.forEach((group, index) => groups.set(group.id, { cell, index, group }));
   });
   for (const effect of effects) {
     validatePopulationEffect(snapshot, effect, groups);
     if (!isGroupEffect(effect)) continue;
-    if (seen[effect.group]) independent = false;
-    seen[effect.group] = 1;
-    demands[effect.group] += effect.amount;
+    const prior = demands.get(effect.group);
+    if (prior !== undefined) independent = false;
+    demands.set(effect.group, (prior ?? 0) + effect.amount);
   }
   return { demands, groups, independent };
 }
@@ -177,18 +174,10 @@ function stableSourceIndices(effects: readonly PopulationEffect[], plan: Populat
     if (!isGroupEffect(effect)
       || effect.kind === 'population-state'
       || effect.kind === 'population-transition') continue;
-    const source = plan.groups[effect.group]!.group;
+    const source = plan.groups.get(effect.group)!.group;
     if (effect.amount >= source.count - 1e-9) return false;
   }
   return true;
-}
-
-function liveGroupIndex(model: Model): LiveGroups {
-  const result: LiveGroups = new Array(model.nextPopulationGroupId);
-  model.populationGroups.forEach(cellGroups => {
-    cellGroups.forEach(group => { result[group.id] = group; });
-  });
-  return result;
 }
 
 function settleIndependentPopulation(
@@ -197,7 +186,10 @@ function settleIndependentPopulation(
   plan: PopulationPlan,
 ): PopulationOutcome[] {
   const stableIndices = stableSourceIndices(effects, plan);
-  const liveGroups = stableIndices ? undefined : liveGroupIndex(model);
+  const liveGroups = stableIndices ? undefined : new Map<number, PopulationGroup>();
+  if (liveGroups) {
+    model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
+  }
   const outcomes: PopulationOutcome[] = [];
 
   for (const effect of effects) {
@@ -208,11 +200,11 @@ function settleIndependentPopulation(
     }
 
     const cell = sourceCell(effect);
-    const location = plan.groups[effect.group]!;
+    const location = plan.groups.get(effect.group)!;
     const source = location.group;
     const live = stableIndices
       ? model.populationGroups[location.cell][location.index]
-      : liveGroups![effect.group]!;
+      : liveGroups!.get(effect.group)!;
     if (!live || live.id !== effect.group) throw new Error(`Population group ${effect.group} moved during settlement.`);
     const actual = Math.min(effect.amount, source.count);
     const outcome: PopulationOutcome = { actual };
@@ -273,11 +265,12 @@ export function settlePopulation(
     return settleIndependentPopulation(model, effects, plan);
   }
 
-  const liveGroups = liveGroupIndex(model);
+  const liveGroups = new Map<number, PopulationGroup>();
+  model.populationGroups.forEach(cellGroups => cellGroups.forEach(group => liveGroups.set(group.id, group)));
   const actuals = effects.map(effect => {
     if (!isGroupEffect(effect)) return effect.amount;
     const source = groupIn(plan.groups, sourceCell(effect), effect.group);
-    const demand = plan.demands[effect.group];
+    const demand = plan.demands.get(effect.group) ?? 0;
     return effect.amount * Math.min(1, source.count / Math.max(1e-12, demand));
   });
   const outcomes: PopulationOutcome[] = actuals.map(actual => ({ actual }));
@@ -293,7 +286,7 @@ export function settlePopulation(
     const first = effects[indices[0]] as GroupEffect;
     const cell = sourceCell(first);
     const source = groupIn(plan.groups, cell, first.group);
-    const live = liveGroups[first.group]!;
+    const live = liveGroups.get(first.group)!;
     const consumed = indices.reduce((sum, index) => sum + actuals[index], 0);
     const only = indices.length === 1 ? effects[indices[0]] : undefined;
     const whole = Math.abs(source.count - consumed) <= 1e-9;
