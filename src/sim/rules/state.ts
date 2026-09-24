@@ -1,5 +1,6 @@
+import { forecastBudgetForStep, debtLimitForStep } from '../budget';
 import { clamp } from '../math';
-import { debtLimit, forecastBudget, subsidyFor } from '../policy';
+import { subsidyFor } from '../policy';
 import { resolveStepCache } from '../step-cache';
 import { SECTORS, type Effect, type Rule } from '../types';
 import { isLand } from './helpers';
@@ -49,10 +50,11 @@ export const financingRule: Rule = {
   direction: 'mapxel-to-mapxel',
   phase: 'financing',
   description: 'Borrow only to cover a cash shortfall, up to a transparent per-resident credit limit.',
-  run({ model }) {
-    const forecast = forecastBudget(model);
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
+    const forecast = forecastBudgetForStep(model, peopleCache);
     const shortfall = forecast.spending + forecast.interest - model.treasury;
-    const remainingCredit = debtLimit(model) - model.debt;
+    const remainingCredit = debtLimitForStep(peopleCache) - model.debt;
     const borrowed = Math.max(
       0,
       Math.min(shortfall, remainingCredit, model.externalCash),
@@ -82,14 +84,14 @@ export const fiscalRule: Rule = {
   description: 'Public services and targeted subsidies compete for a finite budget. Unfunded services weaken rather than creating money.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
-    const forecast = forecastBudget(model);
+    const forecast = forecastBudgetForStep(model, peopleCache);
     const interest = Math.max(0, Math.min(model.treasury, forecast.interest));
     const availableForServices = Math.max(0, model.treasury - interest);
     const funding = forecast.spending > 0
       ? clamp(availableForServices / forecast.spending)
       : 1;
-    const reserve = model.cells.reduce(
-      (total, cell) => total + peopleCache.peopleByCell[cell.id].population,
+    const reserve = peopleCache.peopleByCell.reduce(
+      (total, people) => total + people.population,
       0,
     ) * 6;
     const surplus = Math.max(0, availableForServices - forecast.spending * funding - reserve);
