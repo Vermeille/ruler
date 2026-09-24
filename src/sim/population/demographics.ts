@@ -58,15 +58,26 @@ function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, wei
   return allocated;
 }
 
-/** Explicit group sources and sinks replace the former aggregate population delta. */
+/** Explicit group sources and sinks replace aggregate demographic mutations. */
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
   phase: 'demographics',
-  description: 'Reproductive adults have children; actual group wellbeing, health, age, and food access determine demographic pressure.',
+  description: 'Reproductive adults have children; actual group wellbeing, health, age, and food access determine births and deaths.',
   run({ model, random }) {
     const effects: Effect[] = [];
     for (const cell of model.cells) {
-      if (cell.biome === 'water' || cell.population <= 0) continue;
+      if (cell.biome === 'water') continue;
+
+      const deprivation = clamp((0.7 - cell.foodSecurity) / 0.7);
+      const starvationDeaths = cell.population * deprivation * deprivation * 0.008;
+      effects.push({
+        kind: 'delta',
+        cell: cell.id,
+        field: 'starvationDeaths',
+        amount: starvationDeaths - cell.starvationDeaths,
+      });
+      if (cell.population <= 0) continue;
+
       const groups = model.populationGroups[cell.id];
       const parents: WeightedParent[] = [];
       const weighted: WeightedMortality[] = [];
@@ -135,7 +146,7 @@ export const populationDemographicsRule: Rule = {
 
       const deathRate = 0.00095 + (1 - livedHealth) * 0.0005 + (1 - cell.foodSecurity) * 0.0008;
       const targetDeaths = Math.min(cell.population,
-        cell.population * deathRate + cell.starvationDeaths);
+        cell.population * deathRate + starvationDeaths);
       if (targetDeaths <= 0 || weightTotal <= 0) continue;
       const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
       const scale = targetDeaths / weightTotal;
@@ -143,7 +154,7 @@ export const populationDemographicsRule: Rule = {
         const amount = allocated?.get(item.group.id) ?? item.weight * scale;
         if (amount <= 0) continue;
         effects.push({ kind: 'population-delta', cell: cell.id, group: item.group.id, amount, cause: 'death',
-          evidence: cell.starvationDeaths > 1 && amount > 0.5 && model.tick % 3 === 0 ? {
+          evidence: starvationDeaths > 1 && amount > 0.5 && model.tick % 3 === 0 ? {
             title: `${cell.name}: food deprivation causes deaths`,
             detail: `${amount.toFixed(1)} members of this cohort die; age, health and food access determine its share of local mortality.`,
             cells: [cell.id],
