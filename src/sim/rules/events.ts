@@ -12,6 +12,13 @@ function violentCrimeChance(cell: DeepReadonly<Mapxel>): number {
   return 0.05 + cell.crime * 0.8;
 }
 
+type WellbeingShock = {
+  cell: number;
+  group: DeepReadonly<PopulationGroup>;
+  change: number;
+  eventKeys: Set<string>;
+};
+
 export const eventRule: Rule = {
   id: 'stories.events',
   phase: 'events',
@@ -19,11 +26,21 @@ export const eventRule: Rule = {
   run({ model, random, lastEvents }) {
     const effects: Effect[] = [];
     const candidates = model.cells.filter(isLand);
-    const wellbeingShocks = new Map<number, { cell: number; group: DeepReadonly<PopulationGroup>; change: number }>();
-    const shockWellbeing = (cell: DeepReadonly<Mapxel>, change: number) => {
+    const wellbeingShocks = new Map<number, WellbeingShock>();
+    const shockWellbeing = (cell: DeepReadonly<Mapxel>, change: number, eventKey: string) => {
       for (const group of model.populationGroups[cell.id]) {
         const current = wellbeingShocks.get(group.id);
-        wellbeingShocks.set(group.id, { cell: cell.id, group, change: (current?.change ?? 0) + change });
+        if (current) {
+          current.change += change;
+          current.eventKeys.add(eventKey);
+        } else {
+          wellbeingShocks.set(group.id, {
+            cell: cell.id,
+            group,
+            change,
+            eventKeys: new Set([eventKey]),
+          });
+        }
       }
     };
 
@@ -67,16 +84,7 @@ export const eventRule: Rule = {
 
       for (const cell of candidates) {
         const shock = cell.id === crime.id ? -0.06 : -0.008;
-        // Legacy projection for existing event tests and UI. The matching group shock below
-        // makes the population state the durable source of truth.
-        effects.push({
-          kind: 'delta',
-          cell: cell.id,
-          field: 'happiness',
-          amount: shock,
-          eventKey: 'violentCrime',
-        });
-        shockWellbeing(cell, shock);
+        shockWellbeing(cell, shock, 'violentCrime');
       }
     }
 
@@ -111,7 +119,6 @@ export const eventRule: Rule = {
           },
         },
         delta(sport, 'sportsInterest', 0.15),
-        delta(sport, 'happiness', 0.04),
         {
           kind: 'transfer',
           from: 'external',
@@ -120,7 +127,7 @@ export const eventRule: Rule = {
           amount: sport.population * 0.4,
         },
       );
-      shockWellbeing(sport, 0.04);
+      shockWellbeing(sport, 0.04, 'festival');
     }
 
     const farm = choose('weather-place');
@@ -164,7 +171,7 @@ export const eventRule: Rule = {
       }
     }
 
-    for (const { cell, group, change } of wellbeingShocks.values()) {
+    for (const { cell, group, change, eventKeys } of wellbeingShocks.values()) {
       if (Math.abs(change) <= 1e-12) continue;
       effects.push({
         kind: 'population-state',
@@ -172,6 +179,7 @@ export const eventRule: Rule = {
         group: group.id,
         amount: group.count,
         change: { wellbeing: change },
+        eventKey: eventKeys.size === 1 ? eventKeys.values().next().value : undefined,
       });
     }
 
