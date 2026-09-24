@@ -9,6 +9,7 @@ import {
   planResourceSettlement,
   settleResourceEffect,
 } from './settlement/resources';
+import { buildStepCache } from './step-cache';
 import { assertModel } from './validation/model';
 import {
   PHASES,
@@ -18,6 +19,7 @@ import {
   type Model,
   type Phase,
   type Rule,
+  type StepCache,
 } from './types';
 
 export { recordCause } from './causality/provenance';
@@ -218,6 +220,7 @@ function cloneGameForStep(game: Game): Game {
 function proposalsForPhase(
   game: Game,
   snapshot: DeepReadonly<Model>,
+  cache: DeepReadonly<StepCache>,
   rules: Rule[],
 ): Proposal[] {
   const proposals: Proposal[] = [];
@@ -227,7 +230,7 @@ function proposalsForPhase(
     const random = (cell: number, channel = '') => {
       return randomAt(snapshot.seed, snapshot.tick, rule.id, cell, channel);
     };
-    const effects = rule.run({ model: snapshot, random, lastEvents });
+    const effects = rule.run({ model: snapshot, cache, random, lastEvents });
     for (const effect of effects) proposals.push({ rule: rule.id, effect });
   }
 
@@ -262,7 +265,12 @@ function snapshotForTrustedPhase(model: Model, proposals: readonly Proposal[]): 
   } as DeepReadonly<Model>;
 }
 
-function runPhase(game: Game, phase: Phase, orderedRules: Rule[]): void {
+function runPhase(
+  game: Game,
+  phase: Phase,
+  orderedRules: Rule[],
+  cache: DeepReadonly<StepCache>,
+): void {
   const activeRules = orderedRules.filter(rule => rule.phase === phase);
   if (activeRules.length === 0) return;
 
@@ -275,7 +283,7 @@ function runPhase(game: Game, phase: Phase, orderedRules: Rule[]): void {
 
   if (trusted) {
     const rulesStart = profiling ? performance.now() : 0;
-    proposals = proposalsForPhase(game, game.model as DeepReadonly<Model>, activeRules);
+    proposals = proposalsForPhase(game, game.model as DeepReadonly<Model>, cache, activeRules);
     if (profiling) rulesMs = performance.now() - rulesStart;
     const snapshotStart = profiling ? performance.now() : 0;
     snapshot = snapshotForTrustedPhase(game.model, proposals);
@@ -285,7 +293,7 @@ function runPhase(game: Game, phase: Phase, orderedRules: Rule[]): void {
     snapshot = deepFreeze(structuredClone(game.model));
     if (profiling) snapshotMs = performance.now() - snapshotStart;
     const rulesStart = profiling ? performance.now() : 0;
-    proposals = proposalsForPhase(game, snapshot, activeRules);
+    proposals = proposalsForPhase(game, snapshot, cache, activeRules);
     if (profiling) rulesMs = performance.now() - rulesStart;
   }
 
@@ -320,9 +328,10 @@ export function step(game: Game, rules: readonly Rule[] = defaultRules): Game {
   const orderedRules = orderRules(rules);
   const next = cloneGameForStep(game);
   next.model.tick += 1;
+  const cache = buildStepCache(next.model);
 
   for (const phase of PHASES) {
-    runPhase(next, phase, orderedRules);
+    runPhase(next, phase, orderedRules, cache);
   }
 
   assertModel(next.model);
