@@ -96,12 +96,13 @@ function readSet(game: Game, phase: PhaseTrace, rule: Rule): ReadSet {
   const model = structuredClone(phase.before);
   const trackedModel = trackedObject(model, '', modelReads);
   const trackedEvents = trackedObject({ ...game.lastEvents }, '', eventReads);
+  const randomNamespace = rule.randomNamespace ?? rule.id;
 
   rule.run({
     model: trackedModel,
     lastEvents: trackedEvents,
     random: (cell, channel = '') => (
-      randomAt(model.seed, model.tick, rule.id, cell, channel)
+      randomAt(model.seed, model.tick, randomNamespace, cell, channel)
     ),
   });
 
@@ -218,12 +219,18 @@ function writtenPaths(
   return result;
 }
 
+function pathMatches(write: string, read: string): boolean {
+  return read === write || read.startsWith(`${write}.`);
+}
+
 function matchingPaths(writes: readonly InfluencePath[], reads: ReadSet): InfluencePath[] {
-  return writes.filter(write => (
-    write.source === 'model'
-      ? reads.model.has(write.path)
-      : reads.lastEvents.has(write.path)
-  ));
+  return writes.filter(write => {
+    const candidates = write.source === 'model' ? reads.model : reads.lastEvents;
+    for (const read of candidates) {
+      if (pathMatches(write.path, read)) return true;
+    }
+    return false;
+  });
 }
 
 function collectConsumers(
@@ -357,7 +364,7 @@ function collectProducers(
     for (const trace of phase.rules) {
       const writes = ruleWrittenPaths(trace, phase.before);
       const matched = reads.filter(read => writes.some(write => (
-        write.source === read.source && write.path === read.path
+        write.source === read.source && pathMatches(write.path, read.path)
       )));
       if (!matched.length) continue;
 
