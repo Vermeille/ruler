@@ -8,6 +8,7 @@ import { eventRule } from './rules/events';
 import { populationAggregationRule } from './population/aggregation';
 import { populationExperienceRule } from './population/experience';
 import { populationCrimeRule } from './population/crime';
+import { populationEmploymentRule } from './population/employment';
 import { populationAgingRule, populationLifeStageRule } from './population/aging';
 import { populationDemographicsRule } from './population/demographics';
 import { retrainingRule } from './population/retraining';
@@ -26,6 +27,7 @@ export {
   populationAggregationRule,
   populationExperienceRule,
   populationCrimeRule,
+  populationEmploymentRule,
   populationAgingRule,
   populationLifeStageRule,
   populationDemographicsRule,
@@ -44,6 +46,7 @@ export const defaultRules: readonly Rule[] = [
   financingRule,
   fiscalRule,
   societyRule,
+  populationEmploymentRule,
   populationExperienceRule,
   populationCrimeRule,
   populationAgingRule,
