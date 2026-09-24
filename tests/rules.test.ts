@@ -6,8 +6,8 @@ import { clamp } from '../src/sim/math';
 import { forecastBudget } from '../src/sim/policy';
 import {
   consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
-  migrationRule, populationAggregationRule, populationDemographicsRule, populationExperienceRule,
-  productionRule, societyRule, taxationRule, tradeRule,
+  migrationRule, populationAggregationRule, populationCrimeRule, populationDemographicsRule,
+  populationExperienceRule, productionRule, societyRule, taxationRule, tradeRule,
 } from '../src/sim/rules';
 import type { Effect, Game, Mapxel, MutableField, Rule } from '../src/sim/types';
 
@@ -163,7 +163,7 @@ test('floating-point exhausted treasury never requests negative fiscal transfers
   assert.ok(proposed.every(effect => effect.amount >= 0));
 });
 
-test('society updates world conditions while resident approval changes through people and projection', () => {
+test('society keeps world conditions env-to-env while resident approval changes through people and projection', () => {
   const base = tiny(), c = land(base);
   const changedWorld = (edit: (cell: Mapxel, game: Game) => void, field: MutableField) => {
     const variant = structuredClone(base); edit(variant.model.cells[c.id], variant);
@@ -172,7 +172,6 @@ test('society updates world conditions while resident approval changes through p
   assert.ok(changedWorld((cell) => { cell.foodSecurity = .2; }, 'health') < 0);
   assert.ok(changedWorld((_, g) => { g.model.policy.spending.health = 1; }, 'health') > 0);
   assert.ok(changedWorld((_, g) => { g.model.policy.laws.cleanAir = true; }, 'pollution') < 0);
-  assert.ok(changedWorld((_, g) => { g.model.policy.spending.police = 0; }, 'crime') > 0);
 
   const residentApproval = (edit: (game: Game) => void) => {
     const variant = structuredClone(base); edit(variant);
@@ -186,6 +185,31 @@ test('society updates world conditions while resident approval changes through p
   const projected = new Set(['employment', 'happiness', 'approval', 'children', 'seniors']);
   assert.ok(effects(societyRule, base).every(effect =>
     effect.kind !== 'delta' || !projected.has(effect.field)));
+  assert.ok(!effects(societyRule, base).some(effect =>
+    effect.kind === 'delta' && effect.field === 'crime'));
+});
+
+test('crime pressure emerges from resident circumstances and policy rather than cached employment', () => {
+  const base = tiny(), c = land(base);
+  const crimeDelta = (game: Game) => delta(effects(populationCrimeRule, game), c.id, 'crime');
+  const baseline = crimeDelta(base);
+
+  const noPolice = structuredClone(base);
+  noPolice.model.policy.spending.police = 0;
+  assert.ok(crimeDelta(noPolice) > baseline,
+    'less policing should allow more resident crime pressure to reach the world');
+
+  const distressed = structuredClone(base);
+  for (const group of distressed.model.populationGroups[c.id]) {
+    group.wealth = 0;
+    if (group.lifeStage === 'adult') group.employed = false;
+  }
+  assert.ok(crimeDelta(distressed) > baseline,
+    'poorer, unemployed resident groups should create more crime pressure');
+
+  const staleAggregate = structuredClone(base);
+  staleAggregate.model.cells[c.id].employment = 0;
+  near(crimeDelta(staleAggregate), baseline);
 });
 
 test('a wage floor reduces viable service firms and actual group employment according to local payroll capacity', () => {
