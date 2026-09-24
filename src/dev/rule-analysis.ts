@@ -1,5 +1,6 @@
 import { deepFreeze, randomAt } from '../sim/math';
 import { defaultRules } from '../sim/rules';
+import { buildStepCache } from '../sim/step-cache';
 import { traceStep, type PhaseTrace } from '../sim/trace';
 import {
   MUTABLE_FIELDS,
@@ -86,8 +87,8 @@ export interface RuleAnalysis {
 }
 
 type Scalar = string | number | boolean;
-type InputCategory = 'cell' | 'policy' | 'budget' | 'global' | 'random' | 'event' | 'structure';
-type InputSource = 'model' | 'lastEvents' | 'random';
+type InputCategory = 'cell' | 'people' | 'policy' | 'budget' | 'global' | 'random' | 'event' | 'structure';
+type InputSource = 'model' | 'cache' | 'lastEvents' | 'random';
 
 interface ConcreteInput {
   key: string;
@@ -141,6 +142,13 @@ const NORMALIZED_FIELDS = new Set<string>([
   'pollution',
   'infrastructure',
   'employment',
+  'employmentRate',
+  'childShare',
+  'seniorShare',
+  'averageEducation',
+  'averageHealth',
+  'averageWellbeing',
+  'averageApproval',
   'foodSecurity',
   'sportsInterest',
   'agriculture',
@@ -192,7 +200,7 @@ function classifyModelRead(
     return {
       groupKey: `population.${field}`,
       groupLabel: structural ? `Group ${words(field)} (structure)` : `Group ${words(field)}`,
-      category: structural ? 'structure' : 'cell',
+      category: structural ? 'structure' : 'people',
       cell,
       perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
       example: `${model.cells[cell]?.name ?? `cell ${cell}`} · group ${field}`,
@@ -264,6 +272,28 @@ function classifyModelRead(
   };
 }
 
+function classifyCacheRead(
+  path: string,
+  value: Scalar,
+  model: DeepReadonly<Model>,
+): Omit<ConcreteInput, 'key' | 'source' | 'path' | 'value'> {
+  const match = /^peopleByCell\.(\d+)\.([^.]+)(?:\.([^.]+))?$/.exec(path);
+  const cell = match ? Number(match[1]) : undefined;
+  const field = match
+    ? (match[3] ? `${match[2]}.${match[3]}` : match[2])
+    : path;
+  return {
+    groupKey: `people.${field}`,
+    groupLabel: `People · ${words(field)}`,
+    category: 'people',
+    cell,
+    perturbable: typeof value === 'number' || typeof value === 'boolean',
+    example: cell === undefined
+      ? `step cache · ${field}`
+      : `${model.cells[cell]?.name ?? `cell ${cell}`} · people ${field}`,
+  };
+}
+
 function recordPrimitive(
   reads: Map<string, ConcreteInput>,
   source: InputSource,
@@ -289,7 +319,9 @@ function recordPrimitive(
     return;
   }
 
-  const classified = classifyModelRead(path, value, model);
+  const classified = source === 'cache'
+    ? classifyCacheRead(path, value, model)
+    : classifyModelRead(path, value, model);
   reads.set(key, { key, source, path, value, ...classified });
 }
 
@@ -331,10 +363,13 @@ function runTrackedRule(
   rule: Rule,
 ): { effects: Effect[]; reads: ConcreteInput[] } {
   const reads = new Map<string, ConcreteInput>();
-  // The diagnostic proxy itself enforces read-only access. Freezing before
-  // proxying would violate Proxy invariants for nested object properties.
+  // The diagnostic proxies themselves enforce read-only access. The cache is
+  // derived from the step-start game, matching production rather than being
+  // recomputed from each phase snapshot.
   const model = structuredClone(phase.before);
+  const cache = structuredClone(buildStepCache(game.model));
   const trackedModel = trackedObject(model, '', 'model', reads, model);
+  const trackedCache = trackedObject(cache, '', 'cache', reads, model);
   const trackedEvents = trackedObject(
     { ...game.lastEvents },
     '',
@@ -342,10 +377,11 @@ function runTrackedRule(
     reads,
     model,
   );
+  const randomNamespace = rule.randomNamespace ?? rule.id;
 
   const random = (cell: number, channel = '') => {
     const path = `${cell}:${channel || 'default'}`;
-    const value = randomAt(model.seed, model.tick, rule.id, cell, channel);
+    const value = randomAt(model.seed, model.tick, randomNamespace, cell, channel);
     const key = `random:${path}`;
     if (!reads.has(key)) {
       reads.set(key, {
@@ -367,6 +403,7 @@ function runTrackedRule(
   return {
     effects: rule.run({
       model: trackedModel,
+      cache: trackedCache,
       random,
       lastEvents: trackedEvents,
     }),
@@ -560,6 +597,7 @@ function runPerturbedRule(
   perturbation: Perturbation,
 ): Effect[] {
   const model = structuredClone(phase.before);
+  const cache = structuredClone(buildStepCache(game.model));
   const lastEvents = { ...game.lastEvents };
   const randomOverride = new Map<string, number>();
 
@@ -568,6 +606,11 @@ function runPerturbedRule(
     if (typeof current === 'number' || typeof current === 'boolean') {
       setAtPath(model, input.path, perturbation.value);
     }
+  } else if (input.source === 'cache') {
+    const current = getAtPath(cache, input.path);
+    if (typeof current === 'number' || typeof current === 'boolean') {
+      setAtPath(cache, input.path, perturbation.value);
+    }
   } else if (input.source === 'lastEvents') {
     lastEvents[input.path] = perturbation.value as number;
   } else {
@@ -575,13 +618,16 @@ function runPerturbedRule(
   }
 
   const frozen = deepFreeze(model);
+  const frozenCache = deepFreeze(cache);
+  const randomNamespace = rule.randomNamespace ?? rule.id;
   return rule.run({
     model: frozen,
+    cache: frozenCache,
     lastEvents: Object.freeze(lastEvents),
     random: (cell, channel = '') => {
       const key = `${cell}:${channel || 'default'}`;
       return randomOverride.get(key)
-        ?? randomAt(frozen.seed, frozen.tick, rule.id, cell, channel);
+        ?? randomAt(frozen.seed, frozen.tick, randomNamespace, cell, channel);
     },
   });
 }
