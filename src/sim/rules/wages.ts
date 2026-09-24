@@ -1,6 +1,7 @@
 import { clamp } from '../math';
 import type { DeepReadonly, Mapxel, Model, Sector } from '../types';
 
+// [I] ECONOMY-SECTOR-RETURNS1
 export function unitOutput(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model>, sector: Sector): number {
   switch (sector) {
     case 'agriculture': return 6 * cell.price;
@@ -12,6 +13,7 @@ export function unitOutput(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model
 
 // The local firm mix has payroll capacity spread uniformly from half to 1.5 times its mean.
 // Worker health is explicit so callers cannot silently substitute the mapxel health-access field.
+// [I] EMPLOYMENT-WAGE1
 export function viableJobs(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
