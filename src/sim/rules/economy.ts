@@ -45,7 +45,6 @@ export const productionRule: Rule = {
             detail: `Local farms produced ${food.toFixed(0)} units for ${people.population.toFixed(0)} residents. The settled worker mix and employment level combine with worker health, fertility, weather, pollution, and water stress to determine the harvest.`,
             cells: [cell.id],
             reads: [
-              read(cell, 'fertility', 'Farm fertility'),
               read(cell, 'pollution', 'Pollution pressure'),
               read(cell, 'waterStress', 'Water stress'),
             ],
