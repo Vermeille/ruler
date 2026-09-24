@@ -11,7 +11,7 @@ const specsDir = join(root, 'specs');
 const codeDir = join(root, 'src');
 const codeExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue']);
 
-const specEntryPattern = /^\[I\] ([A-Z][A-Z0-9-]*):\s+(.+)$/;
+const specEntryPattern = /^\[([IEX])\] ([A-Z][A-Z0-9-]*):\s+(.+)$/;
 const codeReferencePattern = /\[I\]\s+([A-Z][A-Z0-9-]*)\b/g;
 
 async function walk(directory: string): Promise<string[]> {
@@ -35,16 +35,16 @@ async function readSpecIds(): Promise<{ ids: Map<string, Location>; errors: stri
   for (const file of files) {
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/);
     lines.forEach((line, index) => {
-      if (!line.startsWith('[I]')) return;
+      if (!/^\[[IEX]/.test(line)) return;
 
       const match = line.match(specEntryPattern);
       const location = { file, line: index + 1 };
       if (!match) {
-        errors.push(`${display(location)} has a malformed behavior entry; expected "[I] CODE: description".`);
+        errors.push(`${display(location)} has a malformed behavior entry; expected "[I] CODE: description", "[E] CODE: description", or "[X] CODE: description".`);
         return;
       }
 
-      const id = match[1];
+      const [, status, id] = match;
       const previous = ids.get(id);
       if (previous) {
         errors.push(`${display(location)} duplicates ${id}, first declared at ${display(previous)}.`);
@@ -52,6 +52,11 @@ async function readSpecIds(): Promise<{ ids: Map<string, Location>; errors: stri
       }
 
       ids.set(id, location);
+      if (status === 'E') {
+        errors.push(`${display(location)} marks ${id} as edited; reconcile the code and change it back to [I].`);
+      } else if (status === 'X') {
+        errors.push(`${display(location)} marks ${id} for deletion; remove the behavior from code and delete this spec line.`);
+      }
     });
   }
 
