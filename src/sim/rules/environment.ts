@@ -9,6 +9,7 @@ import type {
   StepCache,
 } from '../types';
 import { changeToward, delta, isLand } from './helpers';
+import { serviceLoads } from './resilience';
 
 type ConditionTargets = {
   health: number;
@@ -32,18 +33,25 @@ function baselineTargets(
 ): ConditionTargets {
   const spending = model.policy.spending;
   const funding = model.budget.funding;
+  const healthBase = clamp(
+    0.55
+      + spending.health * funding * 0.5
+      - cell.pollution * 0.18
+      - (1 - cell.foodSecurity) * 0.35,
+  );
+  const educationBase = clamp(0.35 + spending.education * funding * 0.6);
+  const infrastructureBase = clamp(0.3 + spending.infrastructure * funding * 0.9);
   return {
-    health: clamp(
-      0.55
-        + spending.health * funding * 0.5
-        - cell.pollution * 0.18
-        - (1 - cell.foodSecurity) * 0.35,
-    ),
-    education: clamp(0.35 + spending.education * funding * 0.6),
-    infrastructure: clamp(0.3 + spending.infrastructure * funding * 0.9),
+    health: clamp(healthBase * (1 - cell.healthDisruption * 0.65)),
+    education: clamp(educationBase * (1 - cell.educationDisruption * 0.7)),
+    infrastructure: clamp(infrastructureBase * (1 - cell.infrastructureDisruption * 0.55)),
     pollution: clamp(-spending.environment * funding * 0.7),
     sportsInterest: clamp(0.17 + spending.culture * funding * 0.6),
   };
+}
+
+function overloadAvailability(utilization: number): number {
+  return clamp(1 - Math.max(0, utilization - 1) * 0.7, 0.3, 1);
 }
 
 function fullTargets(
@@ -54,6 +62,7 @@ function fullTargets(
   const spending = model.policy.spending;
   const funding = model.budget.funding;
   const people = cache.peopleByCell[cell.id];
+  const loads = serviceLoads(cell, people);
   const neighbors = model.neighbors[cell.id].filter(id => model.cells[id].biome !== 'water');
   const neighborIndustry = neighbors.length
     ? neighbors.reduce(
@@ -64,21 +73,19 @@ function fullTargets(
   const manufacturingPressure = (
     people.occupationShares.manufacturing * 0.75 + neighborIndustry * 0.25
   ) * (model.policy.laws.cleanAir ? 0.6 : 1.1);
+  const baseline = baselineTargets(cell, model);
 
   return {
     health: clamp(
-      0.55
-        + spending.health * funding * 0.5
-        - cell.pollution * 0.18
-        - (1 - cell.foodSecurity) * 0.35
-        + people.averageWealth * 0.001,
+      (baseline.health + people.averageWealth * 0.001)
+        * overloadAvailability(loads.healthUtilization),
     ),
     education: clamp(
-      0.35 + spending.education * funding * 0.6 + people.averageWealth * 0.002,
+      (baseline.education + people.averageWealth * 0.002)
+        * overloadAvailability(loads.educationUtilization),
     ),
     infrastructure: clamp(
-      0.3
-        + spending.infrastructure * funding * 0.9
+      baseline.infrastructure
         + Math.min(1, cell.materials / Math.max(people.population, 1e-12)) * 0.06,
     ),
     pollution: clamp(
@@ -100,11 +107,12 @@ function fullTargets(
 // [I] ENVIRONMENT-INFRA1
 // [I] ENVIRONMENT-POLLUTION1
 // [I] ENVIRONMENT-SPORTS1
+// [I] CASCADE-FAILURE1
 export const environmentRule: Rule = {
   id: 'environment.conditions',
   direction: 'mapxel-to-mapxel',
   phase: 'society',
-  description: 'Public services, pollution, food access, and policy move local environmental conditions.',
+  description: 'Public services, pollution, food access, temporary service failures, and policy move local environmental conditions.',
   run({ model }) {
     const effects: Effect[] = [];
     for (const cell of model.cells) {
@@ -118,17 +126,18 @@ export const environmentRule: Rule = {
   },
 };
 
-/** Residents also alter local conditions through wealth, density, and workforce composition. */
+/** Residents also alter local conditions through wealth, density, workforce composition, and service load. */
 // [I] ENVIRONMENT-HEALTH1
 // [I] ENVIRONMENT-EDUCATION1
 // [I] ENVIRONMENT-INFRA1
 // [I] ENVIRONMENT-POLLUTION1
 // [I] ENVIRONMENT-SPORTS1
+// [I] SERVICE-OVERLOAD1
 export const populationEnvironmentImpactRule: Rule = {
   id: 'population.environment-impact',
   direction: 'people-to-mapxel',
   phase: 'society',
-  description: 'Resident wealth, density, and occupations add private-service, infrastructure, pollution, and cultural pressure.',
+  description: 'Resident wealth, density, occupations, and service demand add private-service, overload, infrastructure, pollution, and cultural pressure.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
