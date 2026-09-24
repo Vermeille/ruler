@@ -26,6 +26,11 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee unit-test-output.txt
+      - name: Run emergent behavior micro-simulations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run simulate:emergence 2>&1 | tee emergent-sim-output.txt
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
@@ -35,5 +40,6 @@ jobs:
           name: ci-results
           path: |
             unit-test-output.txt
+            emergent-sim-output.txt
             test-results/
           if-no-files-found: ignore
