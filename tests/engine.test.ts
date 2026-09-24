@@ -170,11 +170,30 @@ test('save validation rejects invalid shapes, indices, policy, histories, refere
 test('version-one saves migrate with initially unstressed land', () => {
   const prior = JSON.parse(serialize(run(tiny('legacy-save'), 3)));
   prior.version = 1;
-  for (const c of prior.model.cells) { delete c.waterStress; delete c.starvationDeaths; delete c.scarcityPrice; }
+  for (const c of prior.model.cells) {
+    for (const field of [
+      'waterStress', 'starvationDeaths', 'scarcityPrice',
+      'healthCapacity', 'educationCapacity', 'healthDisruption', 'educationDisruption',
+      'infrastructureDisruption', 'unrest', 'infection', 'policyAdjustment',
+      'policyTaxBaseline', 'policySpendingBaseline', 'policyWageBaseline',
+      'policyRightsBaseline', 'policySubsidyBaseline',
+    ]) delete c[field];
+  }
   delete prior.initial.starvationDeaths;
   for (const h of prior.history) delete h.summary.starvationDeaths;
   delete prior.model.policy.laws.foodPriceControls;
   delete prior.model.policy.minimumWage;
+  delete prior.model.populationGroups;
+  delete prior.model.nextPopulationGroupId;
+  delete prior.model.archetypeModelVersion;
+  // Version 1 predates population groups and therefore cannot contain modern group-level
+  // provenance. Keep the synthetic fixture historically shaped instead of making migrations
+  // accept impossible forward-contaminated records.
+  prior.causes = [];
+  prior.provenance = {};
+  prior.actionLog = [];
+  prior.lastEvents = {};
+  prior.articles = prior.articles.filter((article: { id: string }) => article.id === 'welcome');
   const restored = deserialize(JSON.stringify(prior));
   assert.equal(restored.version, 5);
   assert.equal(restored.model.policy.minimumWage, 0);
