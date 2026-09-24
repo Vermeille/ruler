@@ -21,16 +21,16 @@ jobs:
       - run: npm install
       - name: Check behavior specifications
         run: npm run check:specs
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee unit-test-output.txt
       - name: Run emergent behavior micro-simulations
         shell: bash
         run: |
           set -o pipefail
           npm run simulate:emergence 2>&1 | tee emergent-sim-output.txt
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee unit-test-output.txt
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
