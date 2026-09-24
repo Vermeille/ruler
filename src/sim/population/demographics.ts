@@ -1,7 +1,6 @@
 import { clamp } from '../math';
 import { SECTORS, type DeepReadonly, type Effect, type PopulationGroup, type Rule } from '../types';
 import { archetypeAt } from './archetypes';
-import { healthOf, wellbeingOf } from './selectors';
 
 /** Life stages change only after the monthly age increment has settled. */
 export const populationAgingRule: Rule = {
@@ -54,6 +53,7 @@ function inheritedArchetype(
 }
 
 type WeightedMortality = { group: DeepReadonly<PopulationGroup>; weight: number };
+type WeightedParent = { group: DeepReadonly<PopulationGroup>; weight: number };
 
 function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, weightTotal: number): Map<number, number> | null {
   const scale = targetDeaths / weightTotal;
@@ -94,12 +94,35 @@ export const populationDemographicsRule: Rule = {
     for (const cell of model.cells) {
       if (cell.biome === 'water' || cell.population <= 0) continue;
       const groups = model.populationGroups[cell.id];
-      const parents = groups.filter(group => group.lifeStage === 'adult' && group.age < 50);
-      const parentWeight = (group: DeepReadonly<PopulationGroup>) => group.count
-        * (0.7 + archetypeAt(model.seed, group.archetype, model.archetypeModelVersion).traits.familyOrientation * 0.6);
-      const reproductiveMass = parents.reduce((sum, group) => sum + parentWeight(group), 0);
-      const livedWellbeing = wellbeingOf(model, cell.id);
-      const livedHealth = healthOf(model, cell.id);
+      const parents: WeightedParent[] = [];
+      const weighted: WeightedMortality[] = [];
+      let populationMass = 0;
+      let wellbeingMass = 0;
+      let healthMass = 0;
+      let reproductiveMass = 0;
+      let weightTotal = 0;
+
+      for (const group of groups) {
+        populationMass += group.count;
+        wellbeingMass += group.count * group.wellbeing;
+        healthMass += group.count * group.health;
+
+        if (group.lifeStage === 'adult' && group.age < 50) {
+          const familyOrientation = archetypeAt(
+            model.seed, group.archetype, model.archetypeModelVersion,
+          ).traits.familyOrientation;
+          const weight = group.count * (0.7 + familyOrientation * 0.6);
+          parents.push({ group, weight });
+          reproductiveMass += weight;
+        }
+
+        const weight = group.count * mortalityWeight(group, cell.foodSecurity);
+        weighted.push({ group, weight });
+        weightTotal += weight;
+      }
+
+      const livedWellbeing = populationMass > 0 ? wellbeingMass / populationMass : 0;
+      const livedHealth = populationMass > 0 ? healthMass / populationMass : 0;
       const birthRate = 0.00065 + livedWellbeing * 0.00055 + livedHealth * 0.0002;
       // Batch fractional births into yearly cohorts so a mapxel does not
       // accumulate dozens of tiny, distinct newborn groups each year.
@@ -108,10 +131,14 @@ export const populationDemographicsRule: Rule = {
         : 0;
       if (births > 1e-12 && reproductiveMass > 0) {
         let draw = random(cell.id, 'birth-parent') * reproductiveMass;
-        const parent = parents.find(group => {
-          draw -= parentWeight(group);
-          return draw < 0;
-        }) ?? parents[parents.length - 1];
+        let parent = parents[parents.length - 1].group;
+        for (const candidate of parents) {
+          draw -= candidate.weight;
+          if (draw < 0) {
+            parent = candidate.group;
+            break;
+          }
+        }
         const archetype = inheritedArchetype(model.seed, model.archetypeModelVersion,
           parent.archetype, random(cell.id, 'birth-variation'));
         effects.push({ kind: 'population-delta', cell: cell.id, archetype, amount: births, cause: 'birth',
@@ -135,8 +162,6 @@ export const populationDemographicsRule: Rule = {
       const deathRate = 0.00095 + (1 - livedHealth) * 0.0005 + (1 - cell.foodSecurity) * 0.0008;
       const targetDeaths = Math.min(cell.population,
         cell.population * deathRate + cell.starvationDeaths);
-      const weighted = groups.map(group => ({ group, weight: group.count * mortalityWeight(group, cell.foodSecurity) }));
-      const weightTotal = weighted.reduce((sum, item) => sum + item.weight, 0);
       if (targetDeaths <= 0 || weightTotal <= 0) continue;
       const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
       const scale = targetDeaths / weightTotal;
