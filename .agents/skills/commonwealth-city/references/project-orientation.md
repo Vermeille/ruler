@@ -44,6 +44,12 @@ The default engine therefore uses actual group transitions for employment, occup
 
 Raw mapxel population mutation is forbidden. Births/deaths use `population-delta`; migration uses `population-transfer`; population settlement updates cached cell population alongside groups.
 
+### Per-step population cache
+
+At the beginning of each simulation step, `src/sim/step-cache.ts` derives one immutable `StepCache` directly from authoritative population groups. It contains per-mapxel population counts, employment, demographic shares, population-weighted human state, and employed occupational shares. The same cache instance is supplied to every rule phase for that month and is discarded afterward.
+
+The step cache is execution data, not model state: it is not written by Effects, settled, saved, restored, recorded as provenance, or used as the source for the next cache. It deliberately does not read mapxel human projections, even for empty cohorts. Current persisted mapxel human projections remain temporarily for compatibility with existing rule consumers and UI; rules can migrate to the step cache without turning those summaries into a second authority.
+
 ## State registries
 
 Runtime mechanics for mutable place state live in `src/sim/map-fields.ts`. Runtime mechanics for mutable population state live in `src/sim/population/fields.ts`.
@@ -146,6 +152,7 @@ what changes downstream?
 | Module | Responsibility |
 | --- | --- |
 | `types.ts` | Core data vocabulary, Effects, rules, phases. |
+| `step-cache.ts` | Immutable per-step population summaries derived from authoritative groups. |
 | `map-fields.ts` | Mutable mapxel mechanics/registry. |
 | `population/fields.ts` | Mutable population mechanics/registry. |
 | `population/archetypes.ts` | Deterministic archetype definitions. |
@@ -194,7 +201,7 @@ Avoid abstract inheritance frameworks and behavior-specific fast paths. Performa
 
 Tests should protect mechanisms, not scripted drama. Important contracts include conservation, phase simultaneity, deterministic keyed randomness, people-first authority, policy directionality, bounded long-run behavior, save/load reproducibility, causal traceability, and browser workflows.
 
-The performance strategy is sparse people, not fewer possible archetypes. Runtime cost is driven by live cohorts, proposal allocation, population settlement, migration/retraining/demographics, aggregation, and snapshots. `scripts/perf-sim.ts` and the performance workflow measure this path.
+The performance strategy is sparse people, not fewer possible archetypes. Runtime cost is driven by live cohorts, proposal allocation, population settlement, migration/retraining/demographics, aggregation, snapshots, and the once-per-step population-summary pass. `scripts/perf-sim.ts` and the performance workflow measure this path.
 
 ## What to read next
 
