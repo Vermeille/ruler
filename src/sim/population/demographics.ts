@@ -1,5 +1,5 @@
 import { clamp } from '../math';
-import type { DeepReadonly, Effect, PopulationGroup, Rule } from '../types';
+import type { DeepReadonly, Effect, Evidence, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
 
 function naturalMortalityWeight(group: DeepReadonly<PopulationGroup>): number {
@@ -73,7 +73,7 @@ function deathEffects(
   targetDeaths: number,
   weightTotal: number,
   cell: number,
-  evidence: (group: DeepReadonly<PopulationGroup>, amount: number) => Effect['evidence'],
+  evidence: (group: DeepReadonly<PopulationGroup>, amount: number) => Evidence | undefined,
 ): Effect[] {
   if (targetDeaths <= 0 || weightTotal <= 0) return [];
   const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
