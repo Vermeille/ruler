@@ -37,22 +37,30 @@ function validatePopulationEffect(
       throw new Error('Invalid population destination.');
     }
   } else if (effect.kind === 'population-transition') {
-    const entries = Object.entries(effect.transition);
-    if (!entries.length || entries.some(([key, value]) =>
-      !['lifeStage', 'occupation', 'employed'].includes(key)
-      || (key === 'lifeStage' && !['child', 'adult', 'senior'].includes(String(value)))
-      || (key === 'occupation' && ![null, 'agriculture', 'manufacturing', 'services', 'sports'].includes(value as string | null))
-      || (key === 'employed' && typeof value !== 'boolean'))) {
-      throw new Error('Invalid population transition.');
+    let count = 0;
+    for (const key in effect.transition) {
+      count += 1;
+      const value = effect.transition[key as keyof typeof effect.transition];
+      if (!['lifeStage', 'occupation', 'employed'].includes(key)
+        || (key === 'lifeStage' && !['child', 'adult', 'senior'].includes(String(value)))
+        || (key === 'occupation' && ![null, 'agriculture', 'manufacturing', 'services', 'sports'].includes(value as string | null))
+        || (key === 'employed' && typeof value !== 'boolean')) {
+        throw new Error('Invalid population transition.');
+      }
     }
+    if (count === 0) throw new Error('Invalid population transition.');
   } else if (effect.kind === 'population-state') {
-    const entries = Object.entries(effect.change);
-    if (!entries.length || entries.some(([key, value]) =>
-      !['age', 'education', 'income', 'wealth', 'health', 'wellbeing', 'approval',
+    let count = 0;
+    for (const key in effect.change) {
+      count += 1;
+      const value = effect.change[key as keyof typeof effect.change];
+      if (!['age', 'education', 'income', 'wealth', 'health', 'wellbeing', 'approval',
         'environmentalism', 'civicLiberty', 'traditionalism', 'solidarity'].includes(key)
-      || !Number.isFinite(value))) {
-      throw new Error('Invalid population state change.');
+        || !Number.isFinite(value)) {
+        throw new Error('Invalid population state change.');
+      }
     }
+    if (count === 0) throw new Error('Invalid population state change.');
   } else if (effect.kind === 'population-delta') {
     if (!snapshot.cells[effect.cell] || snapshot.cells[effect.cell].biome === 'water') throw new Error('Invalid population delta cell.');
     if (effect.cause === 'birth') {
@@ -82,6 +90,7 @@ function validateGroupState(group: Omit<PopulationGroup, 'id' | 'archetype' | 'c
 export interface PopulationPlan {
   demands: Map<number, number>;
   groups: Map<number, GroupLocation>;
+  independent: boolean;
 }
 
 export interface PopulationOutcome {
@@ -92,16 +101,19 @@ export interface PopulationOutcome {
 export function planPopulation(snapshot: DeepReadonly<Model>, effects: readonly PopulationEffect[]): PopulationPlan {
   const demands = new Map<number, number>();
   const groups = new Map<number, GroupLocation>();
-  if (effects.length === 0) return { demands, groups };
+  let independent = true;
+  if (effects.length === 0) return { demands, groups, independent };
   snapshot.populationGroups.forEach((cellGroups, cell) => {
     cellGroups.forEach(group => groups.set(group.id, { cell, group }));
   });
   for (const effect of effects) {
     validatePopulationEffect(snapshot, effect, groups);
     if (!isGroupEffect(effect)) continue;
-    demands.set(effect.group, (demands.get(effect.group) ?? 0) + effect.amount);
+    const prior = demands.get(effect.group);
+    if (prior !== undefined) independent = false;
+    demands.set(effect.group, (prior ?? 0) + effect.amount);
   }
-  return { demands, groups };
+  return { demands, groups, independent };
 }
 
 function cloneGroup(source: DeepReadonly<PopulationGroup>): PopulationGroup {
@@ -117,7 +129,9 @@ function applyGroupChange(target: PopulationGroup, source: DeepReadonly<Populati
     return;
   }
   if (effect.kind !== 'population-state') return;
-  for (const [field, delta] of Object.entries(effect.change)) {
+  for (const field in effect.change) {
+    const delta = effect.change[field as keyof typeof effect.change];
+    if (delta === undefined) continue;
     if (field in source.attitudes) {
       const key = field as keyof PopulationGroup['attitudes'];
       target.attitudes[key] = clamp(source.attitudes[key] + delta);
@@ -153,14 +167,6 @@ function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'popul
   });
   model.cells[effect.cell].population += amount;
   return id;
-}
-
-function independentGroupEffects(effects: readonly PopulationEffect[], plan: PopulationPlan): boolean {
-  for (const effect of effects) {
-    if (!isGroupEffect(effect)) continue;
-    if (Math.abs((plan.demands.get(effect.group) ?? 0) - effect.amount) > 1e-9) return false;
-  }
-  return true;
 }
 
 function settleIndependentPopulation(
@@ -237,7 +243,7 @@ export function settlePopulation(
   plan: PopulationPlan,
 ): PopulationOutcome[] {
   if (effects.length === 0) return [];
-  if (independentGroupEffects(effects, plan)) {
+  if (plan.independent) {
     return settleIndependentPopulation(model, effects, plan);
   }
 
