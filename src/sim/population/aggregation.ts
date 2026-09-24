@@ -65,7 +65,7 @@ function projectionEvidence(
         : field;
   return {
     title: `${place.name}: ${label} follows residents`,
-    detail: `${label} moves from ${(before * 100).toFixed(1)}% to ${(after * 100).toFixed(1)}% because this mapxel now contains a different mix of resident states. The mapxel field is a projection of people, not an independent social variable.`,
+    detail: `${label} moves from ${(before * 100).toFixed(1)}% to ${(after * 100).toFixed(1)}% because this mapxel now contains a different mix of resident states. The mapxel field is a compatibility projection of people, not an independent social variable.`,
     cells: [cell],
     parents: projectionParents(model, cell, field, parents),
   };
@@ -123,13 +123,14 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
 }
 
 /**
- * Materialize authoritative human state into mapxel caches after all behavior and event phases.
- * This is a projection only: social rules must change PopulationGroup state, not these fields.
+ * Compatibility projection for UI/save consumers that still read human mapxel fields.
+ * Causal rules should use population groups or the step cache instead.
  */
 export const populationAggregationRule: Rule = {
   id: 'population.aggregate',
+  direction: 'people-to-mapxel',
   phase: 'projection',
-  description: 'Project settled population groups into mapxel employment, wellbeing, approval, demographics, and occupational shares.',
+  description: 'Project settled population groups into compatibility mapxel summaries after causal behavior has finished.',
   run({ model }) {
     const effects: Effect[] = [];
     for (const cell of model.cells) {
