@@ -1,6 +1,15 @@
 import { clamp } from '../math';
 import { subsidyFor } from '../policy';
-import { SECTORS, type DeepReadonly, type Mapxel, type Model, type Rule, type Sector } from '../types';
+import {
+  SECTORS,
+  type DeepReadonly,
+  type Effect,
+  type Mapxel,
+  type Model,
+  type Rule,
+  type Sector,
+  type StepPeopleSummary,
+} from '../types';
 import { unitOutput, viableJobs } from '../rules/wages';
 import { archetypeAt } from './archetypes';
 import { quantizeCohortFlow } from './resolution';
@@ -8,9 +17,10 @@ import { quantizeCohortFlow } from './resolution';
 function sectorOpportunity(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
+  people: DeepReadonly<StepPeopleSummary>,
   sector: Sector,
 ): number {
-  const structuralFit = 0.2 + cell[sector];
+  const structuralFit = 0.2 + people.occupationShares[sector];
   const localFit = sector === 'agriculture'
     ? 0.45 + cell.fertility * 0.55
     : sector === 'manufacturing'
@@ -27,47 +37,101 @@ function sectorOpportunity(
         : cell.sportsInterest * 0.25;
   const subsidy = subsidyFor(model, cell, sector) * model.budget.funding * 1.1;
   const returns = Math.exp(clamp(marketSignal + subsidy, -2, 4));
-  return structuralFit * localFit * returns * viableJobs(cell, model, sector) * unitOutput(cell, model, sector);
+  return structuralFit
+    * localFit
+    * returns
+    * viableJobs(cell, model, sector, people.averageHealth)
+    * unitOutput(cell, model, sector);
 }
+
+function opportunities(
+  cell: DeepReadonly<Mapxel>,
+  model: DeepReadonly<Model>,
+  people: DeepReadonly<StepPeopleSummary>,
+): Record<Sector, number> {
+  return {
+    agriculture: sectorOpportunity(cell, model, people, 'agriculture'),
+    manufacturing: sectorOpportunity(cell, model, people, 'manufacturing'),
+    services: sectorOpportunity(cell, model, people, 'services'),
+    sports: sectorOpportunity(cell, model, people, 'sports'),
+  };
+}
+
+function bestSector(
+  opportunityBySector: Record<Sector, number>,
+  affinities: Readonly<Record<Sector, number>>,
+): { sector: Sector; score: number } {
+  const score = (sector: Sector) => opportunityBySector[sector] * (0.4 + affinities[sector]);
+  let sector: Sector = SECTORS[0];
+  let bestScore = score(sector);
+  for (let index = 1; index < SECTORS.length; index += 1) {
+    const candidate = SECTORS[index];
+    const candidateScore = score(candidate);
+    if (candidateScore > bestScore
+      || (candidateScore === bestScore && candidate.localeCompare(sector) < 0)) {
+      sector = candidate;
+      bestScore = candidateScore;
+    }
+  }
+  return { sector, score: bestScore };
+}
+
+/** New adults choose an occupation only after life-stage transition, using local opportunity. */
+export const entryOccupationRule: Rule = {
+  id: 'population.entry-occupation',
+  direction: 'mapxel-to-people',
+  phase: 'adaptation',
+  description: 'Working-age adults without an occupation choose a sector from local opportunities and archetype affinities.',
+  run({ model, cache }) {
+    const effects: Effect[] = [];
+    for (const cell of model.cells) {
+      if (cell.biome === 'water') continue;
+      const opportunityBySector = opportunities(cell, model, cache.peopleByCell[cell.id]);
+      for (const group of model.populationGroups[cell.id]) {
+        if (group.lifeStage !== 'adult' || group.occupation !== null || group.count <= 0) continue;
+        const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
+        const choice = bestSector(opportunityBySector, archetype.affinities);
+        if (choice.score < 0.02) continue;
+        effects.push({
+          kind: 'population-transition',
+          cell: cell.id,
+          group: group.id,
+          amount: group.count,
+          transition: { occupation: choice.sector, employed: false },
+        });
+      }
+    }
+    return effects;
+  },
+};
 
 /** Occupational adaptation is a change in circumstance, never a change of archetype. */
 export const retrainingRule: Rule = {
   id: 'population.retraining',
+  direction: 'mapxel-to-people',
   phase: 'adaptation',
   description: 'Adults react to local jobs, prices, subsidies, education access, and adaptability by retraining or switching sectors.',
-  run({ model, random }) {
+  run({ model, cache, random }) {
     if (model.tick % 6 !== 0) return [];
-    const effects = [] as ReturnType<Rule['run']>;
+    const effects: Effect[] = [];
 
     for (const cell of model.cells) {
       if (cell.biome === 'water') continue;
-      const opportunityBySector: Record<Sector, number> = {
-        agriculture: sectorOpportunity(cell, model, 'agriculture'),
-        manufacturing: sectorOpportunity(cell, model, 'manufacturing'),
-        services: sectorOpportunity(cell, model, 'services'),
-        sports: sectorOpportunity(cell, model, 'sports'),
-      };
+      const people = cache.peopleByCell[cell.id];
+      const opportunityBySector = opportunities(cell, model, people);
 
       for (const group of model.populationGroups[cell.id]) {
-        if (group.lifeStage !== 'adult' || group.count < 1) continue;
+        if (group.lifeStage !== 'adult' || group.occupation === null || group.count < 1) continue;
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
-        const score = (sector: Sector) => opportunityBySector[sector] * (0.4 + archetype.affinities[sector]);
-        let opportunity: Sector = SECTORS[0];
-        let bestScore = score(opportunity);
-        for (let index = 1; index < SECTORS.length; index += 1) {
-          const candidate = SECTORS[index];
-          const candidateScore = score(candidate);
-          if (candidateScore > bestScore
-            || (candidateScore === bestScore && candidate.localeCompare(opportunity) < 0)) {
-            opportunity = candidate;
-            bestScore = candidateScore;
-          }
-        }
+        const choice = bestSector(opportunityBySector, archetype.affinities);
+        const opportunity = choice.sector;
+        const bestScore = choice.score;
         if (opportunity === group.occupation || bestScore < 0.02) continue;
 
+        const currentScore = opportunityBySector[group.occupation]
+          * (0.4 + archetype.affinities[group.occupation]);
         let desiredAmount: number;
         if (group.employed) {
-          const currentScore = group.occupation ? score(group.occupation) : 0;
           const relativeGain = (bestScore - currentScore) / Math.max(0.02, currentScore);
           if (relativeGain < 0.15) continue;
           desiredAmount = group.count * 0.06
