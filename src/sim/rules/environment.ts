@@ -95,6 +95,11 @@ function fullTargets(
 }
 
 /** Place conditions evolve from policy and other place conditions without resident behavior. */
+// [I] ENVIRONMENT-HEALTH1
+// [I] ENVIRONMENT-EDUCATION1
+// [I] ENVIRONMENT-INFRA1
+// [I] ENVIRONMENT-POLLUTION1
+// [I] ENVIRONMENT-SPORTS1
 export const environmentRule: Rule = {
   id: 'environment.conditions',
   direction: 'mapxel-to-mapxel',
@@ -114,6 +119,11 @@ export const environmentRule: Rule = {
 };
 
 /** Residents also alter local conditions through wealth, density, and workforce composition. */
+// [I] ENVIRONMENT-HEALTH1
+// [I] ENVIRONMENT-EDUCATION1
+// [I] ENVIRONMENT-INFRA1
+// [I] ENVIRONMENT-POLLUTION1
+// [I] ENVIRONMENT-SPORTS1
 export const populationEnvironmentImpactRule: Rule = {
   id: 'population.environment-impact',
   direction: 'people-to-mapxel',
