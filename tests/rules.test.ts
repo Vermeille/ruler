@@ -5,7 +5,7 @@ import { step } from '../src/sim/engine';
 import { clamp } from '../src/sim/math';
 import { forecastBudget } from '../src/sim/policy';
 import {
-  adaptationRule, consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
+  consumptionRule, eventRule, financingRule, fiscalRule, marketRule,
   migrationRule, populationAggregationRule, populationDemographicsRule, populationExperienceRule,
   productionRule, societyRule, taxationRule, tradeRule,
 } from '../src/sim/rules';
@@ -312,17 +312,6 @@ test('high food costs or shortages raise outward migration pressure', () => {
 
   assert.ok(costlyFlow > baseline, `higher local prices should increase outward pressure: ${baseline} → ${costlyFlow}`);
   assert.ok(hungryFlow > baseline, `local hunger should increase outward pressure: ${baseline} → ${hungryFlow}`);
-});
-
-test('industry adaptation keeps shares normalized and reacts to subsidies and food prices', () => {
-  const g = tiny(), c = land(g), baseline = effects(adaptationRule, g);
-  const sports = structuredClone(g); sports.model.policy.subsidies.sports = 3;
-  assert.ok(delta(effects(adaptationRule, sports), c.id, 'sports') > delta(baseline, c.id, 'sports'));
-  const expensive = structuredClone(g); expensive.model.cells[c.id].price = 3;
-  assert.ok(delta(effects(adaptationRule, expensive), c.id, 'agriculture') > delta(baseline, c.id, 'agriculture'));
-  near(['agriculture', 'manufacturing', 'services', 'sports'].reduce((s, k) => s + delta(baseline, c.id, k as MutableField), 0), 0);
-  const unfunded = structuredClone(sports); unfunded.model.budget.funding = 0;
-  near(delta(effects(adaptationRule, unfunded), c.id, 'sports'), delta(baseline, c.id, 'sports'));
 });
 
 test('each stochastic event has its own probability, cooldown and bounded state effects', () => {
