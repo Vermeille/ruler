@@ -248,21 +248,21 @@ test('industrial pollution reaches adjacent residents and Clean Air improves the
   assert.ok(treated.model.cells[neighborId].health > untreated.model.cells[neighborId].health);
 });
 
-test('severe local food deprivation causes explicit deaths and resets when food recovers', () => {
+test('severe local food deprivation creates demographic death pressure and resets when food recovers', () => {
   const g = tiny(), c = land(g);
   c.foodSecurity = .35;
   const deaths = c.population * .008 * .5 ** 2;
-  near(delta(effects(societyRule, g), c.id, 'starvationDeaths'), deaths);
+  near(delta(effects(populationDemographicsRule, g), c.id, 'starvationDeaths'), deaths);
   const fedControl = structuredClone(g);
   fedControl.model.cells[c.id].foodSecurity = 1;
-  const deprived = step(g, [societyRule, populationDemographicsRule]);
-  const fedOnce = step(fedControl, [societyRule, populationDemographicsRule]);
+  const deprived = step(g, [populationDemographicsRule]);
+  const fedOnce = step(fedControl, [populationDemographicsRule]);
   near(deprived.model.cells[c.id].starvationDeaths, deaths);
   assert.ok(deprived.model.cells[c.id].population < fedOnce.model.cells[c.id].population - deaths);
   const fed = structuredClone(deprived);
   fed.model.cells[c.id].foodSecurity = 1;
-  near(delta(effects(societyRule, fed), c.id, 'starvationDeaths'), -deaths);
-  near(step(fed, [societyRule, populationDemographicsRule]).model.cells[c.id].starvationDeaths, 0);
+  near(delta(effects(populationDemographicsRule, fed), c.id, 'starvationDeaths'), -deaths);
+  near(step(fed, [populationDemographicsRule]).model.cells[c.id].starvationDeaths, 0);
 });
 
 test('migration moves population and proportional savings toward resident appeal; movement law dampens expected flow', () => {
