@@ -3,6 +3,7 @@ import { subsidyFor } from '../policy';
 import { SECTORS, type DeepReadonly, type Mapxel, type Model, type Rule, type Sector } from '../types';
 import { unitOutput, viableJobs } from '../rules/wages';
 import { archetypeAt } from './archetypes';
+import { quantizeCohortFlow } from './resolution';
 
 function sectorOpportunity(
   cell: DeepReadonly<Mapxel>,
@@ -34,7 +35,7 @@ export const retrainingRule: Rule = {
   id: 'population.retraining',
   phase: 'adaptation',
   description: 'Adults react to local jobs, prices, subsidies, education access, and adaptability by retraining or switching sectors.',
-  run({ model }) {
+  run({ model, random }) {
     if (model.tick % 6 !== 0) return [];
     const effects = [] as ReturnType<Rule['run']>;
 
@@ -64,21 +65,28 @@ export const retrainingRule: Rule = {
         }
         if (opportunity === group.occupation || bestScore < 0.02) continue;
 
-        let amount: number;
+        let desiredAmount: number;
         if (group.employed) {
           const currentScore = group.occupation ? score(group.occupation) : 0;
           const relativeGain = (bestScore - currentScore) / Math.max(0.02, currentScore);
           if (relativeGain < 0.15) continue;
-          amount = group.count * 0.06
+          desiredAmount = group.count * 0.06
             * (0.25 + archetype.traits.adaptability)
             * (0.35 + 0.65 * cell.education)
             * Math.min(1, relativeGain);
         } else {
-          amount = group.count * 0.25
+          desiredAmount = group.count * 0.25
             * (0.2 + archetype.traits.adaptability)
             * (0.3 + 0.7 * cell.education);
         }
-        if (amount < 0.1) continue;
+        if (desiredAmount < 0.1) continue;
+
+        const amount = quantizeCohortFlow(
+          desiredAmount,
+          group.count,
+          random(cell.id, `retraining-cohort:${group.id}:${opportunity}`),
+        );
+        if (amount <= 1e-9) continue;
 
         const action = group.employed ? 'switch jobs into' : 'retrain for';
         effects.push({
