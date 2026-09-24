@@ -4,7 +4,7 @@ import { createGame } from '../src/sim/world';
 import { assertModel, commitEffects, orderRules, step } from '../src/sim/engine';
 import { deepFreeze, randomAt, summarize } from '../src/sim/math';
 import { enact, parseCommand, previewActions, subsidyFor, validateAction } from '../src/sim/policy';
-import { defaultRules, migrationRule, productionRule, tradeRule } from '../src/sim/rules';
+import { defaultRules, migrationRule, policyAdjustmentRule, productionRule, tradeRule } from '../src/sim/rules';
 import { deserialize, serialize } from '../src/sim/save';
 import { mandateReport } from '../src/sim/narrative';
 import type { Action, Effect, Game, Rule } from '../src/sim/types';
@@ -176,7 +176,7 @@ test('version-one saves migrate with initially unstressed land', () => {
   delete prior.model.policy.laws.foodPriceControls;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 4);
+  assert.equal(restored.version, 5);
   assert.equal(restored.model.policy.minimumWage, 0);
   assert.ok(restored.model.cells.every(c => c.waterStress === 0));
   assert.ok(restored.model.cells.every(c => c.starvationDeaths === 0));
@@ -189,8 +189,38 @@ test('version-two saves migrate with an unregulated wage floor', () => {
   prior.version = 2;
   delete prior.model.policy.minimumWage;
   const restored = deserialize(JSON.stringify(prior));
-  assert.equal(restored.version, 4);
+  assert.equal(restored.version, 5);
   assert.equal(restored.model.policy.minimumWage, 0);
+});
+test('version-four saves gain neutral emergent state without inventing a policy shock', () => {
+  let current = enact(tiny('legacy-v4'), { type: 'spending', service: 'health', amount: .7 });
+  current = enact(current, { type: 'subsidy', sector: 'sports', amount: 1.2, scope: { kind: 'region', id: 0 } });
+  const prior = JSON.parse(serialize(current));
+  prior.version = 4;
+  for (const cell of prior.model.cells) {
+    for (const field of [
+      'healthCapacity', 'educationCapacity', 'healthDisruption', 'educationDisruption',
+      'infrastructureDisruption', 'unrest', 'infection', 'policyAdjustment',
+      'policyTaxBaseline', 'policySpendingBaseline', 'policyWageBaseline',
+      'policyRightsBaseline', 'policySubsidyBaseline',
+    ]) delete cell[field];
+  }
+  for (const groups of prior.model.populationGroups) for (const group of groups) {
+    for (const field of [
+      'outlook', 'mobilization', 'infection', 'salienceFood', 'salienceHealth',
+      'salienceSafety', 'salienceEducation',
+    ]) delete group[field];
+  }
+  const restored = deserialize(JSON.stringify(prior));
+  assert.equal(restored.version, 5);
+  assertModel(restored.model);
+  assert.ok(restored.model.cells.every(cell => Number.isFinite(cell.healthCapacity)
+    && Number.isFinite(cell.educationCapacity)));
+  assert.ok(restored.model.populationGroups.flat().every(group => group.outlook === 0
+    && group.mobilization === 0 && group.salienceFood === 1));
+  const next = step(restored, [policyAdjustmentRule]);
+  assert.ok(next.model.cells.every(cell => cell.policyAdjustment === 0),
+    'the saved policy regime becomes the migration baseline rather than a fake new shock');
 });
 test('enacting food price controls caps posted local prices and survives a save', () => {
   const start = tiny('price-cap-save');
