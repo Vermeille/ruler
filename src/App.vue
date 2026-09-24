@@ -47,7 +47,7 @@ function toast(message: string, error = false): void {
 const {
   game,
   selected,
-  layer,
+  layers,
   zoom,
   roads,
   running,
@@ -209,13 +209,13 @@ onBeforeUnmount(() => {
         <MapPanel
           :game="game"
           :selected="selected"
-          :layer="layer"
+          :layers="layers"
           :zoom="zoom"
           :roads="roads"
           :running="running"
           :dark-mode="darkMode"
           @select="setSelection"
-          @update:layer="layer = $event"
+          @update:layers="layers = $event"
           @update:zoom="zoom = $event"
           @update:roads="roads = $event"
         />
