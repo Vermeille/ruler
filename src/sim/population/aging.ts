@@ -1,6 +1,7 @@
 import type { Effect, Rule } from '../types';
 
 /** Time itself changes people: every settled population group ages by one month. */
+// [I] DEMOGRAPHICS-AGING1
 export const populationAgingRule: Rule = {
   id: 'population.aging',
   direction: 'people-to-people',
@@ -24,6 +25,7 @@ export const populationAgingRule: Rule = {
 };
 
 /** Life-stage transitions see the age already settled by the preceding aging phase. */
+// [I] DEMOGRAPHICS-LIFESTAGE1
 export const populationLifeStageRule: Rule = {
   id: 'population.life-stage',
   direction: 'people-to-people',
