@@ -92,15 +92,16 @@ function deathEffects(
   });
 }
 
-/** Births and ordinary mortality arise from people’s own age, health and lived state. */
+/** Births and ordinary mortality arise from people’s own age, health, lived state, and expectations. */
 // [I] DEMOGRAPHICS-BIRTHRATE1
 // [I] DEMOGRAPHICS-INHERITANCE1
 // [I] DEMOGRAPHICS-MORTALITY1
+// [I] EXPECTATIONS1
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
   direction: 'people-to-people',
   phase: 'demographics',
-  description: 'Reproductive adults have children; age and lived health determine ordinary mortality.',
+  description: 'Reproductive adults have children according to health, wellbeing, family orientation, and outlook; age and lived health determine ordinary mortality.',
   run({ model, random }) {
     const effects: Effect[] = [];
     for (let cellId = 0; cellId < model.populationGroups.length; cellId += 1) {
@@ -112,6 +113,7 @@ export const populationDemographicsRule: Rule = {
       let wellbeingMass = 0;
       let healthMass = 0;
       let reproductiveMass = 0;
+      let reproductiveOutlookMass = 0;
       let weightTotal = 0;
 
       for (const group of groups) {
@@ -126,6 +128,7 @@ export const populationDemographicsRule: Rule = {
           const weight = group.count * (0.7 + familyOrientation * 0.6);
           parents.push({ group, weight });
           reproductiveMass += weight;
+          reproductiveOutlookMass += weight * group.outlook;
         }
 
         const weight = group.count * naturalMortalityWeight(group);
@@ -136,7 +139,12 @@ export const populationDemographicsRule: Rule = {
 
       const livedWellbeing = wellbeingMass / populationMass;
       const livedHealth = healthMass / populationMass;
-      const birthRate = 0.00065 + livedWellbeing * 0.00055 + livedHealth * 0.0002;
+      const reproductiveOutlook = reproductiveMass > 0
+        ? reproductiveOutlookMass / reproductiveMass
+        : 0;
+      const expectationFactor = clamp(1 + reproductiveOutlook * 0.16, 0.82, 1.18);
+      const birthRate = (0.00065 + livedWellbeing * 0.00055 + livedHealth * 0.0002)
+        * expectationFactor;
       const births = model.tick % 12 === 0
         ? 12 * populationMass * birthRate * clamp(reproductiveMass / (populationMass * 0.45), 0, 1.5)
         : 0;
@@ -173,15 +181,23 @@ export const populationDemographicsRule: Rule = {
             health: parent.health,
             wellbeing: parent.wellbeing,
             approval: parent.approval,
+            outlook: parent.outlook * 0.15,
+            mobilization: 0,
+            infection: parent.infection * 0.12,
+            salienceFood: 1,
+            salienceHealth: 1,
+            salienceSafety: 1,
+            salienceEducation: 1,
             attitudes: { ...parent.attitudes },
           },
           evidence: births >= 1 && model.tick % 12 === 0 ? {
             title: `${model.cells[cellId].name}: a new cohort is born`,
-            detail: `${births.toFixed(1)} children are born to local adults. Most inherit a parent's archetype; a small share varies.`,
+            detail: `${births.toFixed(1)} children are born to local adults. Most inherit a parent's archetype; a small share varies. Adult outlook modestly changes how many births occur.`,
             cells: [cellId],
             reads: [
               { cell: cellId, group: parent.id, field: 'age', label: 'Parent cohort age' },
               { cell: cellId, group: parent.id, field: 'health', label: 'Parent health' },
+              { cell: cellId, group: parent.id, field: 'outlook', label: 'Parent outlook' },
             ],
           } : undefined,
         });
