@@ -1,6 +1,12 @@
 import { assertModel } from './engine';
 import { validateAction } from './policy';
 import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
+import {
+  POPULATION_STATE_FIELD_NAMES,
+  POPULATION_STATE_FIELDS,
+  POPULATION_TRANSITION_FIELDS,
+  validPopulationStateValue,
+} from './population/fields';
 import { generatePopulation } from './population/generate';
 import {
   LAWS,
@@ -18,6 +24,11 @@ const MAX_CAUSES = 150_000;
 const MAX_ARTICLES = 10_000;
 const MAX_ACTIONS = 10_000;
 const SAVE_ERROR = 'This save is incomplete, corrupted, or from an unsupported version.';
+const POPULATION_OBSERVATION_FIELDS = new Set<string>([
+  'count',
+  'employed',
+  ...POPULATION_STATE_FIELD_NAMES,
+]);
 
 function fail(): never {
   throw new Error(SAVE_ERROR);
@@ -165,22 +176,21 @@ function validatePopulation(model: Record<string, unknown>, original: Game): voi
     count += cellGroups.length;
     if (count > 2_000_000) return fail();
     for (const group of cellGroups) {
-      if (!isRecord(group) || !isRecord(group.attitudes)
-        || !Number.isSafeInteger(group.id)
+      if (!isRecord(group) || !isRecord(group.attitudes)) return fail();
+      const invalidState = POPULATION_STATE_FIELD_NAMES.some(field => {
+        const spec = POPULATION_STATE_FIELDS[field];
+        const value = spec.storage === 'attitudes'
+          ? (group.attitudes as Record<string, unknown>)[field]
+          : group[field];
+        return !validPopulationStateValue(field, value, 1e-9);
+      });
+      if (!Number.isSafeInteger(group.id)
         || !Number.isInteger(group.archetype)
         || !isFiniteNumber(group.count)
-        || !isFiniteNumber(group.age)
-        || !isFiniteNumber(group.education)
-        || !isFiniteNumber(group.income)
-        || !isFiniteNumber(group.wealth)
-        || !isFiniteNumber(group.health)
-        || !isFiniteNumber(group.wellbeing)
-        || !isFiniteNumber(group.approval)
-        || typeof group.employed !== 'boolean'
-        || !['child', 'adult', 'senior'].includes(String(group.lifeStage))
-        || (group.occupation !== null && !SECTORS.includes(group.occupation as never))
-        || ['environmentalism', 'civicLiberty', 'traditionalism', 'solidarity'].some(
-          field => !isFiniteNumber((group.attitudes as Record<string, unknown>)[field]))) return fail();
+        || invalidState
+        || !POPULATION_TRANSITION_FIELDS.employed.valid(group.employed)
+        || !POPULATION_TRANSITION_FIELDS.lifeStage.valid(group.lifeStage)
+        || !POPULATION_TRANSITION_FIELDS.occupation.valid(group.occupation)) return fail();
     }
   }
 }
@@ -301,9 +311,7 @@ function validateObservation(
         || !isCell(observation.cell)
         || Number(observation.group) < 1
         || Number(observation.group) >= nextGroupId
-        || !['count', 'employed', 'age', 'education', 'income', 'wealth', 'health', 'wellbeing', 'approval',
-          'environmentalism', 'civicLiberty', 'traditionalism', 'solidarity']
-          .includes(String(observation.field))))
+        || !POPULATION_OBSERVATION_FIELDS.has(String(observation.field))))
     || !isFiniteNumber(observation.value)
     || !isSafeString(observation.label)
   ) {
