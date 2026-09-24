@@ -47,7 +47,7 @@ At the beginning of each simulation step, `src/sim/step-cache.ts` derives one im
 
 The step cache is execution data, not model state: it is not written by Effects, settled, saved, restored, recorded as provenance, or used as the source for the next cache. It deliberately does not read mapxel human projections, even for empty cohorts.
 
-The cache represents **step-start people**. If a later phase genuinely needs a human change settled earlier in the same month, it must read current authoritative population groups rather than expecting the cache to refresh. Isolated rule execution in tests/devtools may derive a local cache from its supplied snapshot because no step lifecycle owns one there.
+The cache represents **step-start people**. If a later phase genuinely needs a human change settled earlier in the same month, it must read current authoritative population groups rather than expecting the cache to refresh. Direct isolated rule calls in tests may derive a local cache from the supplied snapshot because no step lifecycle owns one. The developer causal lens is different: it reconstructs the actual step-start cache from the game at the beginning of the traced month and observes cache reads explicitly, so later-phase analysis keeps production timing semantics.
 
 ## Four-arrow rule contract
 
@@ -60,7 +60,7 @@ Every `Rule` declares exactly one `direction`:
 
 The engine and trace path mechanically enforce the **output side**. A rule whose direction ends in `people` may emit population effects but not world/resource mutations. A rule whose direction ends in `mapxel` may emit world/resource effects but not population mutations. Event records are metadata and can accompany either side.
 
-The read side is intentionally not hard-restricted yet. Cross-arrow mechanisms often need state from both ontologies: a `mapxel-to-people` employment rule may inspect current education/adaptability while applying local job conditions; a `people-to-mapxel` behavior may inspect policing or infrastructure while deciding what residents accomplish. Treat unexpected reads as something to inspect and test, not something the type system should prohibit before the model has demonstrated the right boundary.
+The read side is intentionally not hard-restricted. Cross-arrow mechanisms often need state from both ontologies: a `mapxel-to-people` employment rule may inspect current education/adaptability while applying local job conditions; a `people-to-mapxel` behavior may inspect policing or infrastructure while deciding what residents accomplish. Treat unexpected reads as something to inspect and test, not something the type system should prohibit before the model has demonstrated the right boundary.
 
 When one old rule emits effects on both sides, split it into coherent arrows. If two split stochastic rules must reproduce one decision, they may share a `randomNamespace`. If two rules need each other's settled writes, they belong in different phases; same-phase `after` only orders evaluation/provenance, not visibility.
 
@@ -113,7 +113,7 @@ The dedicated `projection` phase is intentionally last. Event changes to populat
 - `population.entry-occupation` and `population.retraining` are `mapxel-to-people` adaptation rules.
 - `population.demographics` is `people-to-people`; `population.starvation` is `mapxel-to-people` in the later deprivation phase; `environment.starvation-report` only materializes the compatibility report.
 - `population.migration` is `mapxel-to-people`; `population.migration-cash` is its `people-to-mapxel` accounting consequence. Both share the same keyed random namespace.
-- `stories.events` owns world/event consequences; `population.event-experience` translates the same stochastic outcome into human wellbeing using the same random namespace.
+- `stories.events` owns world/event consequences; `population.event-experience` translates the same stochastic outcome into human wellbeing using the same random namespace. Their event-linked provenance is resolved at phase commit rather than through a false same-phase data dependency.
 - `population.aggregate` is an explicitly temporary `people-to-mapxel` compatibility projection, not a causal authority.
 
 ## Effects and settlement
@@ -152,7 +152,7 @@ Migration carries proportional cell cash separately from the population-group tr
 
 Rules can attach evidence with affected places, input observations, explanatory text, and policy/provenance parents. The causality layer records significant realized effects and parent links without pretending that the journal is a complete counterfactual causal model.
 
-`src/dev/` analyzes the same ordinary rules. It discovers actual reads, outputs, local sensitivities, map footprints, downstream consumers, and recurrent feedback. New behavior should become inspectable without a bespoke developer-tool implementation. `traceStep()` also retains each rule's declared direction so developer views can organize the graph around the four arrows rather than only around phases.
+`src/dev/` analyzes the same ordinary rules. It discovers actual model reads, explicit step-cache summary reads, outputs, local sensitivities, map footprints, downstream consumers, and recurrent feedback. Cache reads are shown as people-summary inputs such as employment rate or average health rather than as the internal group fields used to construct the cache. Population changes can feed later direct group reads in the same month, but they can feed cache consumers only in a later month because the cache remains fixed for the step. New behavior should become inspectable without a bespoke developer-tool implementation. `traceStep()` also retains each rule's declared direction so developer views can organize the graph around the four arrows rather than only around phases.
 
 The workbench should answer:
 
@@ -220,7 +220,7 @@ Avoid abstract inheritance frameworks and behavior-specific fast paths. Performa
 
 ## Testing and performance
 
-Tests should protect mechanisms, not scripted drama. Important contracts include conservation, phase simultaneity, deterministic keyed randomness, people-first authority, four-arrow output enforcement, policy directionality, bounded long-run behavior, save/load reproducibility, causal traceability, and browser workflows.
+Tests should protect mechanisms, not scripted drama. Important contracts include conservation, phase simultaneity, deterministic keyed randomness, people-first authority, four-arrow output enforcement, flexible read-side legality, policy directionality, bounded long-run behavior, save/load reproducibility, causal traceability, and browser workflows.
 
 The performance strategy is sparse people, not fewer possible archetypes. Runtime cost is driven by live cohorts, proposal allocation, population settlement, migration/retraining/demographics, compatibility aggregation, snapshots, and the once-per-step population-summary pass. `scripts/perf-sim.ts` and the performance workflow measure this path.
 
@@ -229,7 +229,7 @@ The performance strategy is sparse people, not fewer possible archetypes. Runtim
 - `docs/RULES.md`: current mechanics and rule behavior.
 - `docs/SIMULATION.md`: architecture rationale, extension rules, and limitations.
 - `docs/ACTIONS.md`: player government actions and validation.
-- `tests/rule-direction.test.ts`: four-arrow mechanical enforcement.
+- `tests/rule-direction.test.ts`: four-arrow mechanical enforcement and flexible read-side contract.
 - population authority/registry tests: invariants and people-first contracts.
 - `tests/rule-analysis.test.ts`: developer causal-analysis contracts.
 - `tests/browser/`: end-to-end UI/workbench behavior.
