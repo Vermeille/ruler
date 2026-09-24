@@ -404,7 +404,7 @@ export function analyzeRuleInfluence(
 
   let future = baseline.result;
   const seenFutureRules = new Set<string>();
-  const horizon = ruleId === 'society.migration' ? 3 : 1;
+  const horizon = ruleId === 'population.migration' ? 3 : 1;
   for (let ahead = 1; ahead <= horizon && !future.ended; ahead += 1) {
     const next = traceStep(future);
     const found = collectConsumers(future, next.phases, writes, ruleId,
