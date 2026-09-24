@@ -36,22 +36,39 @@ export const retrainingRule: Rule = {
   description: 'Adults react to local jobs, prices, subsidies, education access, and adaptability by retraining or switching sectors.',
   run({ model }) {
     if (model.tick % 6 !== 0) return [];
-    return model.cells.flatMap(cell => {
-      if (cell.biome === 'water') return [];
-      return model.populationGroups[cell.id].flatMap(group => {
-        if (group.lifeStage !== 'adult' || group.count < 1) return [];
+    const effects = [] as ReturnType<Rule['run']>;
+
+    for (const cell of model.cells) {
+      if (cell.biome === 'water') continue;
+      const opportunityBySector: Record<Sector, number> = {
+        agriculture: sectorOpportunity(cell, model, 'agriculture'),
+        manufacturing: sectorOpportunity(cell, model, 'manufacturing'),
+        services: sectorOpportunity(cell, model, 'services'),
+        sports: sectorOpportunity(cell, model, 'sports'),
+      };
+
+      for (const group of model.populationGroups[cell.id]) {
+        if (group.lifeStage !== 'adult' || group.count < 1) continue;
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
-        const score = (sector: Sector) => sectorOpportunity(cell, model, sector)
-          * (0.4 + archetype.affinities[sector]);
-        const opportunity = [...SECTORS].sort((a, b) => score(b) - score(a) || a.localeCompare(b))[0];
-        const bestScore = score(opportunity);
-        if (opportunity === group.occupation || bestScore < 0.02) return [];
+        const score = (sector: Sector) => opportunityBySector[sector] * (0.4 + archetype.affinities[sector]);
+        let opportunity = SECTORS[0];
+        let bestScore = score(opportunity);
+        for (let index = 1; index < SECTORS.length; index += 1) {
+          const candidate = SECTORS[index];
+          const candidateScore = score(candidate);
+          if (candidateScore > bestScore
+            || (candidateScore === bestScore && candidate.localeCompare(opportunity) < 0)) {
+            opportunity = candidate;
+            bestScore = candidateScore;
+          }
+        }
+        if (opportunity === group.occupation || bestScore < 0.02) continue;
 
         let amount: number;
         if (group.employed) {
           const currentScore = group.occupation ? score(group.occupation) : 0;
           const relativeGain = (bestScore - currentScore) / Math.max(0.02, currentScore);
-          if (relativeGain < 0.15) return [];
+          if (relativeGain < 0.15) continue;
           amount = group.count * 0.06
             * (0.25 + archetype.traits.adaptability)
             * (0.35 + 0.65 * cell.education)
@@ -61,11 +78,11 @@ export const retrainingRule: Rule = {
             * (0.2 + archetype.traits.adaptability)
             * (0.3 + 0.7 * cell.education);
         }
-        if (amount < 0.1) return [];
+        if (amount < 0.1) continue;
 
         const action = group.employed ? 'switch jobs into' : 'retrain for';
-        return [{
-          kind: 'population-transition' as const,
+        effects.push({
+          kind: 'population-transition',
           cell: cell.id,
           group: group.id,
           amount,
@@ -82,8 +99,9 @@ export const retrainingRule: Rule = {
             ],
             parents: [`${cell.id}:subsidy:${opportunity}`],
           } : undefined,
-        }];
-      });
-    });
+        });
+      }
+    }
+    return effects;
   },
 };
