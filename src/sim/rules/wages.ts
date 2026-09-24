@@ -15,7 +15,7 @@ export function viableJobs(
   cell: DeepReadonly<Mapxel>,
   model: DeepReadonly<Model>,
   sector: Sector,
-  averageWorkerHealth: number,
+  averageWorkerHealth = cell.health,
 ): number {
   if (model.policy.minimumWage === 0) return 1;
   const capacity = (0.65 - 0.3 * model.policy.businessTax - 0.09)
