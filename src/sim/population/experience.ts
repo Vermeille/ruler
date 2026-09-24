@@ -38,7 +38,7 @@ function livedWellbeing(
   ) / weight;
 }
 
-/** Group circumstances change through Effects; mapxel conditions are the environment people experience. */
+/** Environment and circumstances change people; time progression belongs to population aging. */
 export const populationExperienceRule: Rule = {
   id: 'population.experience',
   phase: 'experience',
@@ -98,7 +98,6 @@ export const populationExperienceRule: Rule = {
           group: group.id,
           amount: group.count,
           change: {
-            age: 1 / 12,
             income: incomeChange,
             wealth: wealthChange,
             health: healthChange,
