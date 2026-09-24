@@ -6,11 +6,23 @@ import {
 } from './rules/economy';
 import { environmentRule, populationEnvironmentImpactRule } from './rules/environment';
 import { eventRule, populationEventExperienceRule } from './rules/events';
+import {
+  policyAdjustmentRule,
+  serviceCapacityRule,
+  serviceStrainRule,
+} from './rules/resilience';
 import { populationAggregationRule } from './population/aggregation';
 import {
   populationExperienceRule,
   populationInternalAttitudesRule,
 } from './population/experience';
+import {
+  populationComparisonRule,
+  populationInfectionRule,
+  populationMobilizationRule,
+  populationPolicyAdjustmentRule,
+  populationSalienceRule,
+} from './population/dynamics';
 import { populationCrimeRule } from './population/crime';
 import { populationEmploymentRule } from './population/employment';
 import { populationAgingRule, populationLifeStageRule } from './population/aging';
@@ -35,6 +47,12 @@ export {
   marketRule,
   migrationRule,
   migrationCashRule,
+  policyAdjustmentRule,
+  populationComparisonRule,
+  populationInfectionRule,
+  populationMobilizationRule,
+  populationPolicyAdjustmentRule,
+  populationSalienceRule,
   productionRule,
   populationAggregationRule,
   populationExperienceRule,
@@ -48,6 +66,8 @@ export {
   starvationReportRule,
   entryOccupationRule,
   retrainingRule,
+  serviceCapacityRule,
+  serviceStrainRule,
   taxationRule,
   tradeRule,
 };
@@ -60,11 +80,19 @@ export const defaultRules: readonly Rule[] = [
   taxationRule,
   financingRule,
   fiscalRule,
+  policyAdjustmentRule,
+  serviceCapacityRule,
+  serviceStrainRule,
   environmentRule,
   populationEnvironmentImpactRule,
   populationEmploymentRule,
   populationExperienceRule,
+  populationComparisonRule,
+  populationPolicyAdjustmentRule,
   populationInternalAttitudesRule,
+  populationSalienceRule,
+  populationMobilizationRule,
+  populationInfectionRule,
   populationCrimeRule,
   populationAgingRule,
   populationLifeStageRule,
