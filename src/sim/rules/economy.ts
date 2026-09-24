@@ -39,9 +39,26 @@ export const productionRule: Rule = {
       const output = people.population * labor * SECTORS.reduce(
         (sum, sector) => sum + people.occupationShares[sector] * unitOutput(cell, model, sector), 0,
       );
+      const foodEvidence: Evidence | undefined = food < people.population
+        ? {
+            title: `${cell.name}: local harvest falls short of monthly needs`,
+            detail: `Local farms produced ${food.toFixed(0)} units for ${people.population.toFixed(0)} residents. The settled worker mix and employment level combine with worker health, fertility, weather, pollution, and water stress to determine the harvest.`,
+            cells: [cell.id],
+            reads: [
+              read(cell, 'fertility', 'Farm fertility'),
+              read(cell, 'pollution', 'Pollution pressure'),
+              read(cell, 'waterStress', 'Water stress'),
+            ],
+            parents: model.populationGroups[cell.id].flatMap(group => [
+              `group:${group.id}:occupation`,
+              `group:${group.id}:employed`,
+              `group:${group.id}:health`,
+            ]),
+          }
+        : undefined;
 
       return [
-        delta(cell, 'food', food),
+        delta(cell, 'food', food, foodEvidence),
         delta(cell, 'materials', materials),
         delta(cell, 'output', output - cell.output),
         delta(cell, 'foodMade', food - cell.foodMade),
