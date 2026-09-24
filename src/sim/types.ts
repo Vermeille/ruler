@@ -321,7 +321,7 @@ export type Effect =
       kind: 'transfer';
       from: Account;
       to: Account;
-      resource: 'cash' | 'food' | 'materials' | 'population';
+      resource: 'cash' | 'food' | 'materials';
       amount: number;
       evidence?: Evidence;
     }
