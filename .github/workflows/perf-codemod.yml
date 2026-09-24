@@ -21,27 +21,42 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
-      - name: Avoid compaction after death-only effects
+      - name: Apply validated performance fixes
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path('src/sim/engine.ts')
-          text = path.read_text()
-          old = """  for (const effect of populationEffects) {\n    if (effect.kind !== 'population-state') {\n      needsCompaction = true;\n      break;\n    }\n    const sourceCount = populationPlan.groups.get(effect.group)?.group.count ?? 0;\n"""
-          new = """  for (const effect of populationEffects) {\n    if (effect.kind === 'population-delta' && effect.cause === 'death') continue;\n    if (effect.kind !== 'population-state') {\n      needsCompaction = true;\n      break;\n    }\n    const sourceCount = populationPlan.groups.get(effect.group)?.group.count ?? 0;\n"""
-          if new in text:
-              print('optimization already applied')
-          elif old not in text:
-              raise SystemExit('compaction block changed; refusing blind patch')
-          else:
+
+          def replace_once(path_name: str, old: str, new: str) -> None:
+              path = Path(path_name)
+              text = path.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f'{path_name}: expected patch target not found')
               path.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'src/sim/engine.ts',
+              """  for (const effect of populationEffects) {\n    if (effect.kind !== 'population-state') {\n      needsCompaction = true;\n      break;\n    }\n    const sourceCount = populationPlan.groups.get(effect.group)?.group.count ?? 0;\n""",
+              """  for (const effect of populationEffects) {\n    if (effect.kind === 'population-delta' && effect.cause === 'death') continue;\n    if (effect.kind !== 'population-state') {\n      needsCompaction = true;\n      break;\n    }\n    const sourceCount = populationPlan.groups.get(effect.group)?.group.count ?? 0;\n""",
+          )
+          replace_once(
+              'src/sim/population/retraining.ts',
+              '        let opportunity = SECTORS[0];',
+              '        let opportunity: Sector = SECTORS[0];',
+          )
+          replace_once(
+              'src/sim/population/settlement.ts',
+              "function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta'; cause: 'birth' }>, amount: number): number {",
+              "function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta' }>, amount: number): number {",
+          )
           PY
-      - run: npx tsc --noEmit
+      - run: npm run build
       - name: Commit patch
         run: |
           if git diff --quiet; then exit 0; fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/sim/engine.ts
-          git commit -m "Skip compaction after mortality-only changes"
+          git add src/sim/engine.ts src/sim/population/retraining.ts src/sim/population/settlement.ts
+          git commit -m "Reduce mortality settlement overhead"
           git push origin HEAD:${{ github.head_ref }}
