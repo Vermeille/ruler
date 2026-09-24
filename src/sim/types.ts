@@ -89,6 +89,32 @@ export interface PopulationGroup {
   };
 }
 
+/**
+ * Read-only population aggregates derived once from authoritative groups at the
+ * beginning of a simulation step. They are an execution cache, never model state.
+ */
+export interface StepPeopleSummary {
+  readonly population: number;
+  readonly adultPopulation: number;
+  readonly employedAdults: number;
+  readonly workerPopulation: number;
+  readonly employmentRate: number;
+  readonly childShare: number;
+  readonly seniorShare: number;
+  readonly averageEducation: number;
+  readonly averageIncome: number;
+  readonly averageWealth: number;
+  readonly averageHealth: number;
+  readonly averageWellbeing: number;
+  readonly averageApproval: number;
+  readonly occupationShares: Readonly<Record<Sector, number>>;
+}
+
+/** Ephemeral, immutable summaries available to every rule during one step. */
+export interface StepCache {
+  readonly peopleByCell: readonly StepPeopleSummary[];
+}
+
 type NumericPopulationGroupField = {
   [K in keyof PopulationGroup]: PopulationGroup[K] extends number ? K : never
 }[keyof PopulationGroup];
@@ -409,6 +435,12 @@ export type Phase = typeof PHASES[number];
 
 export interface RuleContext {
   model: DeepReadonly<Model>;
+  /**
+   * Immutable population summaries derived once at the beginning of step().
+   * The engine and trace path always supply this. It remains optional only so
+   * isolated rule-unit helpers can migrate independently before rules consume it.
+   */
+  cache?: DeepReadonly<StepCache>;
   random: (cell: number, channel?: string) => number;
   lastEvents: Readonly<Record<string, number>>;
 }

@@ -2,6 +2,7 @@ import { assertModel, commitEffects, orderRules } from './engine';
 import { deepFreeze, randomAt, summarize } from './math';
 import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
+import { buildStepCache } from './step-cache';
 import {
   PHASES,
   type DeepReadonly,
@@ -10,6 +11,7 @@ import {
   type Model,
   type Phase,
   type Rule,
+  type StepCache,
   type Summary,
 } from './types';
 
@@ -80,6 +82,7 @@ function cloneGameForTrace(game: Game): Game {
 
 function traceRule(
   snapshot: DeepReadonly<Model>,
+  cache: DeepReadonly<StepCache>,
   lastEvents: Readonly<Record<string, number>>,
   rule: Rule,
 ): RuleTrace {
@@ -90,7 +93,7 @@ function traceRule(
   return {
     id: rule.id,
     description: rule.description,
-    effects: rule.run({ model: snapshot, random, lastEvents }),
+    effects: rule.run({ model: snapshot, cache, random, lastEvents }),
   };
 }
 
@@ -122,6 +125,7 @@ export function traceStep(
   const next = cloneGameForTrace(game);
   const phases: PhaseTrace[] = [];
   next.model.tick += 1;
+  const cache = buildStepCache(next.model);
 
   for (const phase of PHASES) {
     const activeRules = orderedRules.filter(rule => rule.phase === phase);
@@ -132,7 +136,7 @@ export function traceStep(
     const causesBefore = next.causes.length;
     const articlesBefore = next.articles.length;
     const lastEvents = Object.freeze({ ...next.lastEvents });
-    const ruleTraces = activeRules.map(rule => traceRule(snapshot, lastEvents, rule));
+    const ruleTraces = activeRules.map(rule => traceRule(snapshot, cache, lastEvents, rule));
 
     commitEffects(next, snapshot, proposalsFromRules(ruleTraces));
     assertModel(next.model);
