@@ -37,17 +37,15 @@ Do not reintroduce aggregate-only social mechanics merely because a projected ma
 ## Architecture at a glance
 
 - `src/sim/rules.ts`: active/default rule composition and public exports.
-- `src/sim/rules/`: economy, state, events, and modular society/world rules.
-  - `src/sim/rules/society.ts`: thin orchestration for the society phase.
-  - `src/sim/rules/society/conditions.ts`: crime, health, education, infrastructure, pollution.
-  - `src/sim/rules/society/labor.ts`: job viability and employment transitions.
-  - `src/sim/rules/society/wellbeing.ts`: resident-facing aggregate projections/conditions used in the society phase.
-  - `src/sim/rules/society/migration.ts`: people-first migration decisions.
-- `src/sim/population/`: deterministic archetypes, sparse mutable population groups, field semantics, selectors, experience, aging/demographics, retraining, settlement, merge/compaction, and aggregate projection.
+- `src/sim/rules/`: economy, state, environment, events, and other world-facing rules.
+- `src/sim/population/`: deterministic archetypes, sparse mutable population groups, field semantics, selectors, experience, employment, crime, aging/demographics, migration, retraining, settlement, merge/compaction, and compatibility projection.
+- `src/sim/step-cache.ts`: immutable per-step population summaries derived from authoritative groups.
+- `src/sim/rule-direction.ts`: four-arrow direction validation and output-side Effect enforcement.
 - `src/sim/population/fields.ts`: single source of truth for mutable population-state mechanics such as storage, bounds, and merge tolerances.
 - `src/sim/map-fields.ts`: single source of truth for mutable mapxel-field mechanics such as bounds, delta eligibility, and conserved-resource behavior.
-- `src/sim/engine.ts`: simulation orchestration: rule ordering, phase execution, optimized snapshots, population-phase coordination, cloning, and the monthly `step()`.
+- `src/sim/engine.ts`: simulation orchestration: rule ordering, phase execution, one step-start people cache, optimized snapshots, generic settlement, cloning, and the monthly `step()`.
 - `src/sim/settlement/resources.ts`: generic conserved-resource settlement, transfers, trades, debt/budget settlement, and accumulated mapxel deltas.
+- `src/sim/population/settlement.ts`: generic population splitting, movement, transitions, state changes, births, and deaths.
 - `src/sim/causality/provenance.ts`: evidence capture, causes, events, ancestry, and buffered provenance writes.
 - `src/sim/validation/model.ts`: runtime model invariants; `engine.ts` re-exports `assertModel` for compatibility.
 - `src/sim/policy.ts`: action validation, mutation, scope/subsidy precedence, previews, and investments.
@@ -63,25 +61,39 @@ Do not reintroduce aggregate-only social mechanics merely because a projected ma
 
 Read the specific source and tests relevant to the change. Documentation examples and calibration results are not proof of mechanics when implementation can be inspected directly.
 
-## Rules and Effects
+## Four-arrow rules and Effects
+
+Every rule declares exactly one causal transformation:
+
+```text
+mapxel → mapxel
+mapxel → people
+people → mapxel
+people → people
+```
+
+The arrow states what the rule **changes**, not a whitelist of everything it may inspect. The engine hard-enforces the right-hand/output side. Read-side inputs intentionally remain flexible because real mechanisms often need context from both ontologies: employment depends on local firms and worker characteristics; migration evaluates places through a group's circumstances; people-to-world actions depend on world constraints. Keep these cross-side reads visible in developer analysis and tests rather than banning them in the type system.
 
 Rules should remain boring, local functions:
 
 ```ts
 const rule: Rule = {
   id: 'domain.behavior',
+  direction: 'mapxel-to-people',
   phase: '...',
   description: '...',
-  run({ model, random, lastEvents }) {
-    // read phase-start state
+  run({ model, cache, random, lastEvents }) {
+    // read phase-start state plus the immutable step-start people cache
     // calculate response
-    // emit generic Effects
+    // emit generic Effects whose output side matches direction
     return effects;
   },
 };
 ```
 
 Rules do not directly mutate the model. They emit a deliberately small vocabulary of generic effects: mapxel deltas, account/resource transfers, trades, budget/debt operations, events, population state changes, population transitions, births/deaths, and population transfers.
+
+If one mechanic naturally has consequences on both output sides, split it into distinct arrow rules instead of granting an exception. Split stochastic rules may share `randomNamespace` so both halves use the same keyed draw.
 
 Prefer composing existing effects over adding behavior-specific engine machinery. Do not introduce `protest-effect`, `religion-effect`, `disease-effect`, etc. merely because a new behavior exists. Add a new fundamental Effect kind only when the state transformation truly cannot be represented by the existing primitives.
 
@@ -90,31 +102,37 @@ Prefer composing existing effects over adding behavior-specific engine machinery
 For a new archetype/population behavior, normally:
 
 1. Identify the domain module that owns the behavior, or create one focused module.
-2. Read required world/person state through existing types/selectors.
-3. Compute the reaction using archetype predispositions plus mutable group circumstances.
-4. Emit generic Effects with evidence for meaningful causal changes.
-5. Add focused unit/behavioral tests, plus a scenario only if the behavior is genuinely emergent or cross-system.
-6. Update reader-facing docs when the mechanic changes player-visible behavior.
+2. Choose the rule's causal direction from the four arrows.
+3. Read required world/person state through existing types, selectors, or the step cache.
+4. Compute the reaction using archetype predispositions plus mutable group circumstances.
+5. Emit generic Effects whose output side matches the declared direction, with evidence for meaningful causal changes.
+6. Add focused unit/behavioral tests, plus a scenario only if the behavior is genuinely emergent or cross-system.
+7. Update reader-facing docs when the mechanic changes player-visible behavior.
 
 For a new mutable population scalar, add it to `PopulationGroup` and `population/fields.ts`; settlement, validation, compaction, and save mechanics should derive from the registry rather than acquiring new handwritten field lists.
 
 For a new mutable mapxel scalar, add it to `Mapxel` and `map-fields.ts`; bounds/resource semantics should live in the registry rather than new `engine.ts` conditionals.
 
-Do **not** add domain-specific branches to `engine.ts`, generic settlement, or provenance just to make a behavior easier to implement. The engine should remain largely ignorant of sociology.
+Do **not** add domain-specific branches to `engine.ts`, generic settlement, provenance, or direction validation just to make a behavior easier to implement. The engine should remain largely ignorant of sociology.
 
-## Phase and settlement invariants
+## Step cache, phase, and settlement invariants
 
 - One tick is one month.
+- At step start, after advancing the month and before phases run, build exactly one immutable people cache from authoritative population groups. All rules in that month receive the same cache.
+- The cache is ephemeral execution state, never persisted model state and never an Effect target.
+- The cache means **step-start people**. If a later phase needs population changes settled earlier in the same month, read current authoritative groups instead.
 - Rules in the same phase conceptually read the same phase-start state; same-phase proposals cannot depend on one another's results.
+- A same-phase `after` dependency orders execution/provenance only; it does not expose writes. Use a later phase for causal consumption of settled state.
 - Trusted built-in rules use an optimized snapshot strategy: rules read the live phase-start model, then the engine snapshots only state needed by proposed mutations before settlement.
 - Untrusted/extension rules receive a deep-frozen cloned snapshot. This protects the caller from direct rule mutation.
 - Competing outgoing resource demands are scaled against phase-start balances. Incoming resources cannot be re-spent within the same phase.
 - Population settlement conserves cohort mass except for explicit births/deaths; migration and transitions split/move actual groups.
+- Two conceptually sequential full-group updates should settle in distinct phases rather than competing from the same cohort snapshot.
 - Discrete behavioral cohort flows use deterministic stochastic quantization at person-scale resolution where appropriate. Preserve expected flows without manufacturing thousands of meaningless sub-person cohorts.
-- Population aggregation materializes resident-derived mapxel projections for later economy/UI use.
-- Keyed randomness is reproducible by seed, tick, rule ID, cell ID, and channel. Do not replace it with incidental iteration-order RNG.
+- Population aggregation at the final projection phase materializes resident-derived mapxel compatibility fields for UI/save consumers. Causal rules should not use those projections as social authority.
+- Keyed randomness is reproducible by seed, tick, random namespace (normally the rule ID), cell ID, and channel. Do not replace it with incidental iteration-order RNG.
 
-When changing phases, effect order, settlement, snapshotting, or population compaction, assume the change can alter determinism and causal ancestry until tests prove otherwise.
+When changing phases, effect order, settlement, snapshotting, population compaction, or cache semantics, assume the change can alter determinism and causal ancestry until tests prove otherwise.
 
 ## Causality and developer tooling
 
@@ -122,11 +140,14 @@ Meaningful behavior should be explainable through the same evidence/provenance i
 
 - Evidence may record cells, population-group reads, mapxel reads, policy parent keys, and explanatory text.
 - Provenance writes are buffered within a phase so a cause cannot incorrectly depend on another same-phase cause.
+- Event provenance links may resolve at phase commit so split same-phase event rules do not require false data dependencies merely for bookkeeping.
 - Causal records are selective, not a complete event log and not counterfactual proof.
 - New behavior should normally gain tracing by emitting ordinary Effects with evidence, not by adding custom devtools-only causal plumbing.
 - Keep direct inputs visible in developer analysis even when a local perturbation happens to produce a zero derivative in the current state.
+- Developer analysis must execute rules with the same step-start cache and `randomNamespace` semantics as production. Show cache reads as people-summary inputs rather than pretending cached mapxel projections are causal inputs.
+- Population writes feed later direct population reads immediately after settlement, but they feed step-cache reads only in a later month because the cache does not refresh mid-step.
 
-The workbench exists to understand mechanisms, not merely inspect values. Preserve its ability to answer: what changed, why, which people reacted, what they did, and what changed downstream.
+The workbench exists to understand mechanisms, not merely inspect values. Preserve its ability to answer: what changed, what inputs mattered, which people reacted, what they did, what changes downstream, and where recurrent feedback returns.
 
 ## Testing philosophy
 
@@ -162,9 +183,9 @@ The PR CI runs unit/behavioral tests, production build/typecheck, and Playwright
 
 ## Performance guardrails
 
-The project intentionally supports roughly 2,048 possible archetypes; performance should come from sparse live population groups, efficient settlement, and compact representations, **not** by reducing archetype diversity.
+The project intentionally supports roughly 2,048 possible archetypes; performance should come from sparse live population groups, efficient settlement, compact representations, and the shared step cache, **not** by reducing archetype diversity.
 
-The important performance quantity is the number and churn of live groups, not the size of the archetype definition table. Avoid microscopic cohort fragmentation. Use the existing performance probe after changes to snapshotting, settlement, population splitting/merging, migration, demographics, retraining, aggregation, or hot selectors.
+The important performance quantity is the number and churn of live groups, not the size of the archetype definition table. Avoid microscopic cohort fragmentation. Use the existing performance probe after changes to snapshotting, settlement, population splitting/merging, migration, demographics, retraining, aggregation, hot selectors, or cache construction.
 
 Current performance numbers are observations for the current benchmark, not universal targets. Do not hard-code them into gameplay contracts. Preserve or improve performance without changing model semantics merely to make a benchmark green.
 
