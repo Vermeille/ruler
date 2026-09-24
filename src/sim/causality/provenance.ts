@@ -108,15 +108,22 @@ export function createPhaseCausality(
     actual: number,
     resultingGroup?: number,
   ): void {
+    const fields = effect.kind === 'population-state' ? Object.keys(effect.change)
+      : effect.kind === 'population-transition' ? Object.keys(effect.transition)
+        : ['count'];
+
+    if (effect.kind === 'population-state' && effect.eventKey && resultingGroup !== undefined) {
+      const eventId = eventIds.get(effect.eventKey);
+      if (!eventId) throw new Error(`Missing event ${effect.eventKey}`);
+      for (const field of fields) writes[`group:${resultingGroup}:${field}`] = eventId;
+    }
+
     if (!effect.evidence || actual <= 1e-9) return;
     const causeId = recordCause(game, snapshot, rule, effect.evidence, actual, provenance);
     const cells = effect.kind === 'population-transfer' ? [effect.from, effect.to] : [effect.cell];
     for (const cell of cells) writes[`${cell}:population`] = causeId;
 
     if (resultingGroup !== undefined) {
-      const fields = effect.kind === 'population-state' ? Object.keys(effect.change)
-        : effect.kind === 'population-transition' ? Object.keys(effect.transition)
-          : ['count'];
       for (const field of fields) writes[`group:${resultingGroup}:${field}`] = causeId;
     }
   }
