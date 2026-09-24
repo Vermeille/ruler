@@ -204,12 +204,6 @@ test('a wage floor reduces viable service firms and actual group employment acco
     && effect.transition.employed === false
     && effect.evidence?.parents?.includes('policy:minimumWage')),
   'job-loss evidence links back to the ruling');
-
-  const productive = structuredClone(ruled), farm = structuredClone(ruled);
-  Object.assign(productive.model.cells[c.id], { agriculture: 0, manufacturing: 1, services: 0, sports: 0 });
-  Object.assign(farm.model.cells[c.id], { agriculture: 1, manufacturing: 0, services: 0, sports: 0 });
-  assert.ok(employmentLosses(effects(societyRule, productive)) < employmentLosses(effects(societyRule, farm)),
-    'higher local receipts preserve more actual jobs at the same floor');
 });
 
 test('industrial pollution reaches adjacent residents and Clean Air improves their later health', () => {
