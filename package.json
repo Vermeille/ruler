@@ -11,6 +11,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "calibrate": "tsx scripts/calibrate.ts",
+    "simulate:emergence": "tsx scripts/emergent-behavior-sims.ts",
     "tax-sweep": "tsx scripts/tax-sweep.ts"
   },
   "dependencies": {
