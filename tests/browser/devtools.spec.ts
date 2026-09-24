@@ -65,7 +65,10 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
   await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
   await expect(lens).toContainText('society.migration');
-  await expect(lens).toContainText('0 local perturbations');
+  const sampling = lens.locator('.analysis-sampling');
+  await expect(sampling.locator('strong')).toHaveText('0');
+  await expect(sampling).toContainText('local perturbations');
+  await expect(sampling).toContainText('from 0 meaningful reads');
   await expect(graph.locator('.rule-graph-node-input')).toHaveCount(0);
   await expect(graph.locator('.rule-graph-node-output')).toHaveCount(0);
 
