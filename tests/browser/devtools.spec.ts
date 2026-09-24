@@ -37,9 +37,10 @@ test('simulation workbench explains rules visually and preserves the forensic in
   await expect(lens).toContainText('economy.businesses');
 
   // Outputs are first-class graph centers. Crime should become the central node,
-  // with local drivers on the left and exact-path consumers on the right.
-  await phases.getByRole('button', { name: /society/ }).click();
-  await expect(page.getByRole('heading', { name: 'society', exact: true })).toBeVisible();
+  // with resident drivers on the left and exact-path consumers on the right.
+  await phases.getByRole('button', { name: /behavior/ }).click();
+  await expect(page.getByRole('heading', { name: 'behavior', exact: true })).toBeVisible();
+  await expect(rulePicker.getByRole('button', { name: /population.crime/ })).toHaveClass(/active/);
   const crimeOutput = graph.locator('.rule-graph-node-output').filter({ hasText: 'Crime' });
   await expect(crimeOutput).toBeVisible();
   await crimeOutput.click();
@@ -49,7 +50,7 @@ test('simulation workbench explains rules visually and preserves the forensic in
   const crimeNode = graph.locator('.rule-graph-node-variable');
   await expect(crimeNode).toBeVisible();
   await expect(crimeNode).toContainText('Crime');
-  await expect(crimeNode).toContainText('society.wellbeing');
+  await expect(crimeNode).toContainText('population.crime');
   await expect(graph.locator('.rule-graph-edge-input').first()).toBeVisible();
   await expect(graph.locator('.rule-graph-node-consumer').first()).toBeVisible();
   await expect(graph).toContainText('WHAT IT FEEDS');
@@ -57,14 +58,14 @@ test('simulation workbench explains rules visually and preserves the forensic in
   // Clicking the centered variable returns to the producer rule view.
   await crimeNode.click();
   await expect(graph).not.toHaveClass(/variable-centered/);
-  await expect(graph.locator('.rule-graph-node-rule')).toContainText('society.wellbeing');
+  await expect(graph.locator('.rule-graph-node-rule')).toContainText('population.crime');
 
   // Migration is quarterly. Month 1 should explain that the rule is dormant rather than
   // inventing inputs and outputs for a rule that returned before reading lived conditions.
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
-  await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
-  await expect(lens).toContainText('society.migration');
+  await expect(rulePicker.getByRole('button', { name: /population.migration/ })).toHaveClass(/active/);
+  await expect(lens).toContainText('population.migration');
   const sampling = lens.locator('.analysis-sampling');
   await expect(sampling.locator('strong')).toHaveText('0');
   await expect(sampling).toContainText('local perturbations');
@@ -94,8 +95,8 @@ test('simulation workbench explains rules visually and preserves the forensic in
 
   await phases.getByRole('button', { name: /migration/ }).click();
   await expect(page.getByRole('heading', { name: 'migration', exact: true })).toBeVisible();
-  await expect(rulePicker.getByRole('button', { name: /society.migration/ })).toHaveClass(/active/);
-  await expect(lens).toContainText('society.migration');
+  await expect(rulePicker.getByRole('button', { name: /population.migration/ })).toHaveClass(/active/);
+  await expect(lens).toContainText('population.migration');
   await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Wealth' })).toBeVisible();
   await expect(graph.locator('.rule-graph-node-input').filter({ hasText: 'Group Employed' })).toBeVisible();
   await expect(graph.locator('.rule-graph-node-output')).toContainText(['Population Group Flow']);
