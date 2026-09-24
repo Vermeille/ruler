@@ -86,3 +86,15 @@ export function buildStepCache(model: DeepReadonly<Model>): DeepReadonly<StepCac
 
   return Object.freeze({ peopleByCell: Object.freeze(peopleByCell) });
 }
+
+/**
+ * Production step execution always provides one shared cache. This fallback exists
+ * only for isolated rule invocation in tests and developer analysis, where there is
+ * no enclosing step lifecycle to own one.
+ */
+export function resolveStepCache(
+  model: DeepReadonly<Model>,
+  cache?: DeepReadonly<StepCache>,
+): DeepReadonly<StepCache> {
+  return cache ?? buildStepCache(model);
+}

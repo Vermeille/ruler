@@ -1,4 +1,5 @@
 import { clamp } from '../math';
+import { resolveStepCache } from '../step-cache';
 import {
   SECTORS,
   type DeepReadonly,
@@ -12,28 +13,31 @@ import { unitOutput, viableJobs } from './wages';
 
 export const productionRule: Rule = {
   id: 'economy.production',
+  direction: 'people-to-mapxel',
   phase: 'production',
-  description: 'Land, labor, health, and seasonal weather produce food and materials. Exports bring in money.',
-  run({ model, random }) {
+  description: 'Settled workers, their health, land, and seasonal weather produce food, materials, and output.',
+  run({ model, cache, random }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
+      const people = peopleCache.peopleByCell[cell.id];
       const weather = 0.96
         + random(cell.id, 'weather') * 0.08
         + Math.sin(model.tick * Math.PI / 6) * 0.09;
-      const labor = cell.employment * (0.65 + 0.35 * cell.health);
-      const food = cell.population
-        * cell.agriculture
+      const labor = people.employmentRate * (0.65 + 0.35 * people.averageHealth);
+      const food = people.population
+        * people.occupationShares.agriculture
         * (3 + 2 * cell.fertility)
         * labor
         * weather
         * (1 - cell.pollution * 0.18)
         * (1 - cell.waterStress * 0.6);
-      const materials = cell.population
-        * cell.manufacturing
+      const materials = people.population
+        * people.occupationShares.manufacturing
         * (1.4 + cell.minerals)
         * labor
         * (model.policy.laws.cleanAir ? 0.9 : 1);
-      const output = cell.population * labor * SECTORS.reduce(
-        (sum, sector) => sum + cell[sector] * unitOutput(cell, model, sector), 0,
+      const output = people.population * labor * SECTORS.reduce(
+        (sum, sector) => sum + people.occupationShares[sector] * unitOutput(cell, model, sector), 0,
       );
 
       return [
@@ -77,8 +81,9 @@ function tradeEvidence(
 
 export const tradeRule: Rule = {
   id: 'economy.neighbor-trade',
+  direction: 'mapxel-to-mapxel',
   phase: 'trade',
-  description: 'Neighbors exchange stocks and money at a midpoint price, limited by roads, inventory, and buyer cash.',
+  description: 'Neighboring places exchange stocks and money according to inventories, prices, and transport capacity.',
   run({ model }) {
     const effects: Effect[] = [];
 
@@ -122,13 +127,16 @@ export const tradeRule: Rule = {
 
 export const consumptionRule: Rule = {
   id: 'economy.households',
+  direction: 'people-to-mapxel',
   phase: 'consumption',
-  description: 'Households eat first; food shortages constrain restaurants. Imports and spoilage prevent unlimited stock accumulation.',
-  run({ model }) {
+  description: 'Residents consume food and private cash; unmet needs become local food insecurity.',
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     return model.cells.filter(isLand).flatMap(cell => {
-      const need = cell.population;
+      const people = peopleCache.peopleByCell[cell.id];
+      const need = people.population;
       const eaten = Math.min(cell.food, need);
-      const security = eaten / need;
+      const security = need > 0 ? eaten / need : 1;
       const shouldExplainFood = Math.abs(security - cell.foodSecurity) > 0.08
         || (security < 0.85 && model.tick % 6 === 0);
       const foodEvidence = shouldExplainFood
@@ -147,9 +155,9 @@ export const consumptionRule: Rule = {
       const remainingFood = Math.max(0, cell.food - eaten);
       const materialUse = Math.min(
         cell.materials,
-        cell.population * 0.08 + cell.materials * 0.12,
+        people.population * 0.08 + cell.materials * 0.12,
       );
-      const householdSpending = cell.population * (1.6 + cell.cash / cell.population * 0.04)
+      const householdSpending = people.population * (1.6 + cell.cash / Math.max(people.population, 1e-12) * 0.04)
         + cell.output * 0.09;
 
       return [
@@ -171,6 +179,7 @@ export const consumptionRule: Rule = {
 
 export const marketRule: Rule = {
   id: 'economy.businesses',
+  direction: 'mapxel-to-mapxel',
   phase: 'market',
   description: 'Scarcity changes prices; food, insecurity, and unaffordable payrolls squeeze local businesses.',
   run({ model }) {

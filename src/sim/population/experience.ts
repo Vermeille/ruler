@@ -1,4 +1,5 @@
 import { clamp } from '../math';
+import { resolveStepCache } from '../step-cache';
 import type { Archetype, Effect, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
 
@@ -41,28 +42,31 @@ function livedWellbeing(
 /** Environment and circumstances change people; time progression belongs to population aging. */
 export const populationExperienceRule: Rule = {
   id: 'population.experience',
+  direction: 'mapxel-to-people',
   phase: 'experience',
   description: 'Employment, purchasing power, health, services and local conditions change group income, wealth, wellbeing and approval.',
-  run({ model }) {
+  run({ model, cache }) {
+    const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
     const cultureFunding = model.policy.spending.culture * model.budget.funding;
     for (const cell of model.cells) {
       if (cell.biome === 'water') continue;
-      const macroWealth = cell.cash / cell.population;
+      const people = peopleCache.peopleByCell[cell.id];
+      const macroWealth = cell.cash / Math.max(people.population, 1e-12);
       const conditions: LocalConditions = {
         foodSecurity: cell.foodSecurity,
         price: cell.price,
         crime: cell.crime,
         pollution: cell.pollution,
         education: cell.education,
-        population: cell.population,
-        housing: clamp(1 - cell.population / 20_000),
+        population: people.population,
+        housing: clamp(1 - people.population / 20_000),
         culture: clamp(0.5 + cultureFunding),
       };
       for (const group of model.populationGroups[cell.id]) {
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
         const incomeTarget = group.lifeStage === 'adult' && group.employed
-          ? cell.output / cell.population * (0.8 + group.education * 0.3)
+          ? cell.output / Math.max(people.population, 1e-12) * (0.8 + group.education * 0.3)
           : 0;
         const incomeChange = (incomeTarget - group.income) * 0.18;
         const nextIncome = group.income + incomeChange;
@@ -88,10 +92,6 @@ export const populationExperienceRule: Rule = {
           + (cell.pollution - 0.2) * 0.2);
         const libertyTarget = clamp(archetype.values.civicLiberty
           + (model.policy.laws.publicAssembly ? 0 : 0.08));
-        const solidarityTarget = clamp(archetype.values.solidarity
-          + (1 - group.wellbeing) * 0.1);
-        const traditionalismTarget = clamp(archetype.values.traditionalism
-          + (1 - group.wellbeing) * 0.05);
         effects.push({
           kind: 'population-state',
           cell: cell.id,
@@ -106,12 +106,10 @@ export const populationExperienceRule: Rule = {
             approval: (approvalTarget - group.approval) * 0.08,
             environmentalism: (environmentalismTarget - group.attitudes.environmentalism) * 0.003,
             civicLiberty: (libertyTarget - group.attitudes.civicLiberty) * 0.002,
-            solidarity: (solidarityTarget - group.attitudes.solidarity) * 0.002,
-            traditionalism: (traditionalismTarget - group.attitudes.traditionalism) * 0.001,
           },
           evidence: group.count > 5 && wellbeingChange < -0.03 && model.tick % 3 === 0 ? {
             title: `${cell.name}: group #${group.id} experiences hardship`,
-            detail: `Employment, income, reserves, prices, and local services combine into a lower lived wellbeing target for this group.`,
+            detail: 'Employment, income, reserves, prices, and local services combine into a lower lived wellbeing target for this group.',
             cells: [cell.id],
             reads: [
               { cell: cell.id, group: group.id, field: 'income', label: 'Group income' },
@@ -121,6 +119,35 @@ export const populationExperienceRule: Rule = {
               { cell: cell.id, field: 'price', label: 'Food price' },
             ],
           } : undefined,
+        });
+      }
+    }
+    return effects;
+  },
+};
+
+/** Some attitudes drift from a person's own lived state even without a new place stimulus. */
+export const populationInternalAttitudesRule: Rule = {
+  id: 'population.internal-attitudes',
+  direction: 'people-to-people',
+  phase: 'behavior',
+  description: 'Settled wellbeing slowly shifts solidarity and traditionalism toward each archetype’s baseline response.',
+  run({ model }) {
+    const effects: Effect[] = [];
+    for (let cell = 0; cell < model.populationGroups.length; cell += 1) {
+      for (const group of model.populationGroups[cell]) {
+        const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
+        const solidarityTarget = clamp(archetype.values.solidarity + (1 - group.wellbeing) * 0.1);
+        const traditionalismTarget = clamp(archetype.values.traditionalism + (1 - group.wellbeing) * 0.05);
+        effects.push({
+          kind: 'population-state',
+          cell,
+          group: group.id,
+          amount: group.count,
+          change: {
+            solidarity: (solidarityTarget - group.attitudes.solidarity) * 0.002,
+            traditionalism: (traditionalismTarget - group.attitudes.traditionalism) * 0.001,
+          },
         });
       }
     }

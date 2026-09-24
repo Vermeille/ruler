@@ -2,11 +2,18 @@ import { clamp } from '../math';
 import type { DeepReadonly, Effect, PopulationGroup, Rule } from '../types';
 import { archetypeAt } from './archetypes';
 
-function mortalityWeight(group: DeepReadonly<PopulationGroup>, foodSecurity: number): number {
+function naturalMortalityWeight(group: DeepReadonly<PopulationGroup>): number {
   const ageRisk = group.lifeStage === 'senior'
     ? Math.min(10, 1.6 + Math.exp((group.age - 65) / 16))
     : group.lifeStage === 'child' ? 1.2 : 0.65;
-  return ageRisk * (0.55 + (1 - group.health) * 1.4)
+  return ageRisk * (0.55 + (1 - group.health) * 1.4);
+}
+
+function starvationMortalityWeight(
+  group: DeepReadonly<PopulationGroup>,
+  foodSecurity: number,
+): number {
+  return naturalMortalityWeight(group)
     * (1 + (1 - foodSecurity) * (group.lifeStage === 'child' ? 1.4 : 0.7));
 }
 
@@ -29,11 +36,12 @@ function inheritedArchetype(
 type WeightedMortality = { group: DeepReadonly<PopulationGroup>; weight: number };
 type WeightedParent = { group: DeepReadonly<PopulationGroup>; weight: number };
 
-function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, weightTotal: number): Map<number, number> | null {
+function allocateDeaths(
+  weighted: WeightedMortality[],
+  targetDeaths: number,
+  weightTotal: number,
+): Map<number, number> | null {
   const scale = targetDeaths / weightTotal;
-  // Ordinary monthly mortality is tiny compared with every source cohort. In that common
-  // case proportional allocation is already the exact answer, so avoid constructing the
-  // redistribution maps/arrays needed only when a severe shock actually exhausts a group.
   if (weighted.every(item => item.weight * scale <= item.group.count + 1e-12)) return null;
 
   let remaining = targetDeaths;
@@ -45,8 +53,10 @@ function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, wei
     const next: WeightedMortality[] = [];
     for (const item of eligible) {
       const prior = allocated.get(item.group.id) ?? 0;
-      const actual = Math.max(0, Math.min(item.group.count - prior,
-        remaining * item.weight / totalWeight));
+      const actual = Math.max(0, Math.min(
+        item.group.count - prior,
+        remaining * item.weight / totalWeight,
+      ));
       allocated.set(item.group.id, prior + actual);
       removed += actual;
       if (item.group.count - prior - actual > 1e-9) next.push(item);
@@ -58,27 +68,41 @@ function allocateDeaths(weighted: WeightedMortality[], targetDeaths: number, wei
   return allocated;
 }
 
-/** Explicit group sources and sinks replace aggregate demographic mutations. */
+function deathEffects(
+  weighted: WeightedMortality[],
+  targetDeaths: number,
+  weightTotal: number,
+  cell: number,
+  evidence: (group: DeepReadonly<PopulationGroup>, amount: number) => Effect['evidence'],
+): Effect[] {
+  if (targetDeaths <= 0 || weightTotal <= 0) return [];
+  const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
+  const scale = targetDeaths / weightTotal;
+  return weighted.flatMap(item => {
+    const amount = allocated?.get(item.group.id) ?? item.weight * scale;
+    if (amount <= 0) return [];
+    return [{
+      kind: 'population-delta' as const,
+      cell,
+      group: item.group.id,
+      amount,
+      cause: 'death' as const,
+      evidence: evidence(item.group, amount),
+    }];
+  });
+}
+
+/** Births and ordinary mortality arise from people’s own age, health and lived state. */
 export const populationDemographicsRule: Rule = {
   id: 'population.demographics',
+  direction: 'people-to-people',
   phase: 'demographics',
-  description: 'Reproductive adults have children; actual group wellbeing, health, age, and food access determine births and deaths.',
+  description: 'Reproductive adults have children; age and lived health determine ordinary mortality.',
   run({ model, random }) {
     const effects: Effect[] = [];
-    for (const cell of model.cells) {
-      if (cell.biome === 'water') continue;
-
-      const deprivation = clamp((0.7 - cell.foodSecurity) / 0.7);
-      const starvationDeaths = cell.population * deprivation * deprivation * 0.008;
-      effects.push({
-        kind: 'delta',
-        cell: cell.id,
-        field: 'starvationDeaths',
-        amount: starvationDeaths - cell.starvationDeaths,
-      });
-      if (cell.population <= 0) continue;
-
-      const groups = model.populationGroups[cell.id];
+    for (let cellId = 0; cellId < model.populationGroups.length; cellId += 1) {
+      if (model.cells[cellId].biome === 'water') continue;
+      const groups = model.populationGroups[cellId];
       const parents: WeightedParent[] = [];
       const weighted: WeightedMortality[] = [];
       let populationMass = 0;
@@ -101,21 +125,20 @@ export const populationDemographicsRule: Rule = {
           reproductiveMass += weight;
         }
 
-        const weight = group.count * mortalityWeight(group, cell.foodSecurity);
+        const weight = group.count * naturalMortalityWeight(group);
         weighted.push({ group, weight });
         weightTotal += weight;
       }
+      if (populationMass <= 0) continue;
 
-      const livedWellbeing = populationMass > 0 ? wellbeingMass / populationMass : 0;
-      const livedHealth = populationMass > 0 ? healthMass / populationMass : 0;
+      const livedWellbeing = wellbeingMass / populationMass;
+      const livedHealth = healthMass / populationMass;
       const birthRate = 0.00065 + livedWellbeing * 0.00055 + livedHealth * 0.0002;
-      // Batch fractional births into yearly cohorts so a mapxel does not
-      // accumulate dozens of tiny, distinct newborn groups each year.
       const births = model.tick % 12 === 0
-        ? 12 * cell.population * birthRate * clamp(reproductiveMass / (cell.population * 0.45), 0, 1.5)
+        ? 12 * populationMass * birthRate * clamp(reproductiveMass / (populationMass * 0.45), 0, 1.5)
         : 0;
       if (births > 1e-12 && reproductiveMass > 0) {
-        let draw = random(cell.id, 'birth-parent') * reproductiveMass;
+        let draw = random(cellId, 'birth-parent') * reproductiveMass;
         let parent = parents[parents.length - 1].group;
         for (const candidate of parents) {
           draw -= candidate.weight;
@@ -124,46 +147,133 @@ export const populationDemographicsRule: Rule = {
             break;
           }
         }
-        const archetype = inheritedArchetype(model.seed, model.archetypeModelVersion,
-          parent.archetype, random(cell.id, 'birth-variation'));
-        effects.push({ kind: 'population-delta', cell: cell.id, archetype, amount: births, cause: 'birth',
+        const archetype = inheritedArchetype(
+          model.seed,
+          model.archetypeModelVersion,
+          parent.archetype,
+          random(cellId, 'birth-variation'),
+        );
+        effects.push({
+          kind: 'population-delta',
+          cell: cellId,
+          archetype,
+          amount: births,
+          cause: 'birth',
           state: {
-            age: 0, lifeStage: 'child', occupation: null, employed: false,
-            education: 0, income: 0, wealth: Math.max(0, parent.wealth * 0.1),
-            health: clamp((parent.health + cell.health) / 2),
-            wellbeing: parent.wellbeing, approval: parent.approval,
+            age: 0,
+            lifeStage: 'child',
+            occupation: null,
+            employed: false,
+            education: 0,
+            income: 0,
+            wealth: Math.max(0, parent.wealth * 0.1),
+            health: parent.health,
+            wellbeing: parent.wellbeing,
+            approval: parent.approval,
             attitudes: { ...parent.attitudes },
           },
           evidence: births >= 1 && model.tick % 12 === 0 ? {
-            title: `${cell.name}: a new cohort is born`,
+            title: `${model.cells[cellId].name}: a new cohort is born`,
             detail: `${births.toFixed(1)} children are born to local adults. Most inherit a parent's archetype; a small share varies.`,
-            cells: [cell.id],
-            reads: [{ cell: cell.id, group: parent.id, field: 'age', label: 'Parent cohort age' },
-              { cell: cell.id, group: parent.id, field: 'health', label: 'Parent health' }],
+            cells: [cellId],
+            reads: [
+              { cell: cellId, group: parent.id, field: 'age', label: 'Parent cohort age' },
+              { cell: cellId, group: parent.id, field: 'health', label: 'Parent health' },
+            ],
           } : undefined,
         });
       }
 
-      const deathRate = 0.00095 + (1 - livedHealth) * 0.0005 + (1 - cell.foodSecurity) * 0.0008;
-      const targetDeaths = Math.min(cell.population,
-        cell.population * deathRate + starvationDeaths);
-      if (targetDeaths <= 0 || weightTotal <= 0) continue;
-      const allocated = allocateDeaths(weighted, targetDeaths, weightTotal);
-      const scale = targetDeaths / weightTotal;
-      for (const item of weighted) {
-        const amount = allocated?.get(item.group.id) ?? item.weight * scale;
-        if (amount <= 0) continue;
-        effects.push({ kind: 'population-delta', cell: cell.id, group: item.group.id, amount, cause: 'death',
-          evidence: starvationDeaths > 1 && amount > 0.5 && model.tick % 3 === 0 ? {
-            title: `${cell.name}: food deprivation causes deaths`,
-            detail: `${amount.toFixed(1)} members of this cohort die; age, health and food access determine its share of local mortality.`,
-            cells: [cell.id],
-            reads: [{ cell: cell.id, group: item.group.id, field: 'health', label: 'Cohort health' },
-              { cell: cell.id, field: 'foodSecurity', label: 'Food access' }],
-          } : undefined,
-        });
-      }
+      const ordinaryDeaths = Math.min(
+        populationMass,
+        populationMass * (0.00095 + (1 - livedHealth) * 0.0005),
+      );
+      effects.push(...deathEffects(
+        weighted,
+        ordinaryDeaths,
+        weightTotal,
+        cellId,
+        () => undefined,
+      ));
     }
     return effects;
+  },
+};
+
+function starvationDeaths(population: number, foodSecurity: number): number {
+  const deprivation = clamp((0.7 - foodSecurity) / 0.7);
+  return population * deprivation * deprivation * 0.008;
+}
+
+function currentPopulation(groups: readonly DeepReadonly<PopulationGroup>[]): number {
+  return groups.reduce((sum, group) => sum + group.count, 0);
+}
+
+/** Food access is an environmental condition that removes actual people through mortality. */
+export const populationStarvationRule: Rule = {
+  id: 'population.starvation',
+  direction: 'mapxel-to-people',
+  phase: 'deprivation',
+  description: 'Food insecurity creates additional mortality, weighted by age and current human health.',
+  run({ model }) {
+    const effects: Effect[] = [];
+    for (const cell of model.cells) {
+      if (cell.biome === 'water') continue;
+      const groups = model.populationGroups[cell.id];
+      const population = currentPopulation(groups);
+      if (population <= 0) continue;
+
+      const weighted: WeightedMortality[] = [];
+      let weightTotal = 0;
+      for (const group of groups) {
+        const weight = group.count * starvationMortalityWeight(group, cell.foodSecurity);
+        weighted.push({ group, weight });
+        weightTotal += weight;
+      }
+
+      const foodDeaths = Math.min(
+        population,
+        starvationDeaths(population, cell.foodSecurity)
+          + population * (1 - cell.foodSecurity) * 0.0008,
+      );
+      const severe = starvationDeaths(population, cell.foodSecurity);
+      effects.push(...deathEffects(
+        weighted,
+        foodDeaths,
+        weightTotal,
+        cell.id,
+        (group, amount) => severe > 1 && amount > 0.5 && model.tick % 3 === 0 ? {
+          title: `${cell.name}: food deprivation causes deaths`,
+          detail: `${amount.toFixed(1)} members of this cohort die; age, health and food access determine its share of local food-related mortality.`,
+          cells: [cell.id],
+          reads: [
+            { cell: cell.id, group: group.id, field: 'health', label: 'Cohort health' },
+            { cell: cell.id, field: 'foodSecurity', label: 'Food access' },
+          ],
+        } : undefined,
+      ));
+    }
+    return effects;
+  },
+};
+
+/** Compatibility report for UI/history; mortality itself is owned by population.starvation. */
+export const starvationReportRule: Rule = {
+  id: 'environment.starvation-report',
+  direction: 'mapxel-to-mapxel',
+  phase: 'deprivation',
+  description: 'Report the current severe food-deprivation mortality component for each place.',
+  run({ model }) {
+    return model.cells.flatMap(cell => {
+      if (cell.biome === 'water') return [];
+      const population = currentPopulation(model.populationGroups[cell.id]);
+      const target = starvationDeaths(population, cell.foodSecurity);
+      return [{
+        kind: 'delta' as const,
+        cell: cell.id,
+        field: 'starvationDeaths' as const,
+        amount: target - cell.starvationDeaths,
+      }];
+    });
   },
 };
