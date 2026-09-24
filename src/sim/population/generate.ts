@@ -40,6 +40,13 @@ export function generatePopulation(seed: string, cells: readonly Mapxel[]): Gene
         wellbeing: cell.happiness,
         approval: cell.approval,
         wealth: cell.cash / cell.population,
+        outlook: 0,
+        mobilization: 0,
+        infection: 0.004 + randomAt(seed, cell.id, 'infection', id) * 0.004,
+        salienceFood: 1,
+        salienceHealth: 1,
+        salienceSafety: 1,
+        salienceEducation: 1,
         attitudes: {
           environmentalism: archetype.values.environmentalism,
           civicLiberty: archetype.values.civicLiberty,
