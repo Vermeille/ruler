@@ -32,7 +32,10 @@ test('a regional drought reduces the next local harvest beyond lost food stocks'
 test('sustained regional drought cuts harvests and reaches resident health and wellbeing', () => {
   const regular = defaultRules.filter(rule => rule.id !== 'stories.events');
   const weather: Rule = {
-    id: 'scenario.sustained-drought', phase: 'events', description: 'An exogenous regional dry period',
+    id: 'scenario.sustained-drought',
+    direction: 'mapxel-to-mapxel',
+    phase: 'events',
+    description: 'An exogenous regional dry period',
     run({ model }) {
       return model.cells.filter(c => c.biome !== 'water' && c.region === 1)
         .map(c => ({ kind: 'delta' as const, cell: c.id, field: 'waterStress' as const, amount: .8 - c.waterStress }));
