@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assertModel, commitEffects, step } from '../src/sim/engine';
 import { deepFreeze } from '../src/sim/math';
+import { populationAgingRule, populationLifeStageRule } from '../src/sim/population/aging';
 import { ARCHETYPE_COUNT, archetypeAt, generateArchetypes } from '../src/sim/population/archetypes';
+import { populationDemographicsRule } from '../src/sim/population/demographics';
 import { mergePopulation } from '../src/sim/population/merge';
 import { populationExperienceRule } from '../src/sim/population/experience';
-import { populationAgingRule, populationDemographicsRule } from '../src/sim/population/demographics';
 import { retrainingRule } from '../src/sim/population/retraining';
 import { approvalOf, childrenShareOf, educationOf, employmentOf, populationOf, seniorShareOf, wellbeingOf } from '../src/sim/population/selectors';
 import { deserialize, serialize } from '../src/sim/save';
@@ -157,7 +158,7 @@ test('mortality weights age and health while birth cohorts follow the yearly sch
   assert.ok(proposed(12).some(effect => effect.kind === 'population-delta' && effect.cause === 'birth'));
 });
 
-test('age progression moves children into work and adults into retirement', () => {
+test('age progression is its own people-to-people pipeline before life-stage transitions', () => {
   const g = game();
   const cell = land(g)[0];
   const child = g.model.populationGroups[cell.id].find(group => group.lifeStage === 'child')!;
@@ -165,12 +166,21 @@ test('age progression moves children into work and adults into retirement', () =
   child.age = 18 - 1 / 12;
   adult.age = 65 - 1 / 12;
   const before = total(g);
-  const next = step(g, [populationExperienceRule, populationAgingRule]);
+
+  const experience = populationExperienceRule.run({ model: deepFreeze(structuredClone(g.model)),
+    random: () => 0, lastEvents: {} });
+  const childExperience = experience.find(effect => effect.kind === 'population-state' && effect.group === child.id);
+  assert.ok(childExperience && childExperience.kind === 'population-state');
+  assert.equal(childExperience.change.age, undefined);
+
+  const next = step(g, [populationExperienceRule, populationAgingRule, populationLifeStageRule]);
   const grown = next.model.populationGroups[cell.id].find(group => group.id === child.id)!;
   const retired = next.model.populationGroups[cell.id].find(group => group.id === adult.id)!;
+  assert.ok(Math.abs(grown.age - 18) < 1e-9);
   assert.equal(grown.lifeStage, 'adult');
   assert.equal(grown.employed, false);
   assert.ok(grown.occupation);
+  assert.ok(Math.abs(retired.age - 65) < 1e-9);
   assert.equal(retired.lifeStage, 'senior');
   assert.equal(retired.occupation, null);
   assert.equal(retired.employed, false);
