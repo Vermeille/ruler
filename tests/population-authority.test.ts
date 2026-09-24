@@ -8,7 +8,12 @@ import {
   occupationShareOf,
   wellbeingOf,
 } from '../src/sim/population/selectors';
-import { migrationRule, retrainingRule, societyRule, defaultRules } from '../src/sim/rules';
+import {
+  defaultRules,
+  migrationRule,
+  populationEmploymentRule,
+  retrainingRule,
+} from '../src/sim/rules';
 import { SECTORS, type Effect, type Game, type Rule } from '../src/sim/types';
 import { step } from '../src/sim/engine';
 import { createGame } from '../src/sim/world';
@@ -60,8 +65,9 @@ test('only population projection writes cached human mapxel fields in the defaul
   }
 });
 
-test('default engine no longer runs the aggregate labor-share adaptation rule', () => {
+test('default engine uses population rules for employment, retraining, and projection', () => {
   assert.ok(!defaultRules.some(rule => rule.id === 'economy.labor'));
+  assert.ok(defaultRules.some(rule => rule.id === 'population.employment'));
   assert.ok(defaultRules.some(rule => rule.id === 'population.retraining'));
   assert.ok(defaultRules.some(rule => rule.id === 'population.aggregate'));
   assert.equal(populationAggregationRule.phase, 'projection');
@@ -74,7 +80,7 @@ test('employment transitions start from population groups, not the stale mapxel 
   lowProjection.model.cells[cell.id].employment = 0;
   highProjection.model.cells[cell.id].employment = 1;
 
-  const transitions = (g: Game) => effects(societyRule, g)
+  const transitions = (g: Game) => effects(populationEmploymentRule, g)
     .filter((effect): effect is Extract<Effect, { kind: 'population-transition' }> =>
       effect.kind === 'population-transition' && 'employed' in effect.transition)
     .map(effect => ({ group: effect.group, amount: effect.amount, employed: effect.transition.employed }));
