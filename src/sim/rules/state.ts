@@ -78,8 +78,8 @@ export const fiscalRule: Rule = {
   description: 'Public services and targeted subsidies compete for a finite budget. Unfunded services weaken rather than creating money.',
   run({ model }) {
     const forecast = forecastBudget(model);
-    const interest = Math.min(model.treasury, forecast.interest);
-    const availableForServices = model.treasury - interest;
+    const interest = Math.max(0, Math.min(model.treasury, forecast.interest));
+    const availableForServices = Math.max(0, model.treasury - interest);
     const funding = forecast.spending > 0
       ? clamp(availableForServices / forecast.spending)
       : 1;

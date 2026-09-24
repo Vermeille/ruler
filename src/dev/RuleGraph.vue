@@ -87,7 +87,7 @@ const graphConsumers = computed<RuleConsumer[]>(() => (
   props.influence.consumers
     .filter(consumer => !consumer.self)
     .sort((left, right) => (
-      Number(left.month === 'next month') - Number(right.month === 'next month')
+      left.monthsAhead - right.monthsAhead
         || right.strength - left.strength
         || left.ruleId.localeCompare(right.ruleId)
     ))
@@ -96,7 +96,7 @@ const graphConsumers = computed<RuleConsumer[]>(() => (
 
 const feedback = computed(() => (
   props.influence.consumers
-    .filter(consumer => consumer.self && consumer.month === 'next month')
+    .filter(consumer => consumer.self && consumer.monthsAhead > 0)
     .sort((left, right) => right.strength - left.strength)[0]
 ));
 
@@ -352,12 +352,12 @@ function centerRule(): void {
             v-for="(consumer, index) in graphConsumers"
             :key="`consumer-edge:${consumer.key}`"
             class="rule-graph-edge rule-graph-edge-consumer"
-            :class="{ next: consumer.month === 'next month' }"
+            :class="{ next: consumer.monthsAhead > 0 }"
             :d="consumerPath(index)"
             fill="none"
-            :stroke="consumer.month === 'next month' ? '#d3a45d' : '#7acddd'"
+            :stroke="consumer.monthsAhead > 0 ? '#d3a45d' : '#7acddd'"
             :stroke-width="consumerWidth(consumer)"
-            :marker-end="consumer.month === 'next month' ? 'url(#graph-arrow-next)' : 'url(#graph-arrow-output)'"
+            :marker-end="consumer.monthsAhead > 0 ? 'url(#graph-arrow-next)' : 'url(#graph-arrow-output)'"
           />
         </g>
 
@@ -372,7 +372,7 @@ function centerRule(): void {
             marker-end="url(#graph-arrow-feedback)"
           />
           <text class="graph-feedback-label" x="835" y="20" text-anchor="middle">
-            t → t+1 feedback · {{ Math.round(feedback.strength * 100) }}% of writes reread
+            t → t+{{ feedback.monthsAhead }} feedback · {{ Math.round(feedback.strength * 100) }}% of writes reread
           </text>
         </g>
 
@@ -456,7 +456,7 @@ function centerRule(): void {
           v-for="(consumer, index) in graphConsumers"
           :key="`consumer:${consumer.key}`"
           class="rule-graph-node rule-graph-node-consumer"
-          :class="{ next: consumer.month === 'next month' }"
+          :class="{ next: consumer.monthsAhead > 0 }"
           :transform="`translate(${CONSUMER_X} ${laneY(index, graphConsumers.length)})`"
           role="button"
           tabindex="0"
@@ -468,7 +468,7 @@ function centerRule(): void {
           <rect :width="CONSUMER_WIDTH" :height="NODE_HEIGHT" rx="8" />
           <text x="12" y="18" class="graph-node-title">{{ shortLabel(consumer.ruleId, 27) }}</text>
           <text x="12" y="34" class="graph-node-meta">
-            {{ consumer.month === 'next month' ? 't+1' : 'same month' }} · {{ consumer.phase }} · {{ Math.round(consumer.strength * 100) }}%
+            {{ consumer.monthsAhead > 0 ? `t+${consumer.monthsAhead}` : 'same month' }} · {{ consumer.phase }} · {{ Math.round(consumer.strength * 100) }}%
           </text>
         </g>
       </svg>

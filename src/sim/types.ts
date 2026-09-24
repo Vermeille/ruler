@@ -1,3 +1,6 @@
+import { MUTABLE_FIELDS } from './map-fields';
+export { MUTABLE_FIELDS };
+
 export const SECTORS = [
   'agriculture',
   'manufacturing',
@@ -26,6 +29,79 @@ export const LAWS = [
 export type Law = typeof LAWS[number];
 
 export type Biome = 'water' | 'plain' | 'forest' | 'hill' | 'city';
+
+export type ArchetypeId = number;
+export type PopulationGroupId = number;
+
+export interface Archetype {
+  id: ArchetypeId;
+  traits: {
+    adaptability: number;
+    mobility: number;
+    riskTolerance: number;
+    communityAttachment: number;
+    familyOrientation: number;
+    entrepreneurialism: number;
+  };
+  needs: {
+    income: number;
+    employment: number;
+    food: number;
+    health: number;
+    safety: number;
+    housing: number;
+    education: number;
+    environment: number;
+    culture: number;
+  };
+  values: {
+    materialism: number;
+    environmentalism: number;
+    civicLiberty: number;
+    traditionalism: number;
+    individualism: number;
+    solidarity: number;
+  };
+  affinities: Record<Sector, number> & { education: number };
+}
+
+export type LifeStage = 'child' | 'adult' | 'senior';
+
+export interface PopulationGroup {
+  id: PopulationGroupId;
+  archetype: ArchetypeId;
+  count: number;
+  age: number;
+  lifeStage: LifeStage;
+  education: number;
+  occupation: Sector | null;
+  employed: boolean;
+  income: number;
+  wealth: number;
+  health: number;
+  wellbeing: number;
+  approval: number;
+  attitudes: {
+    environmentalism: number;
+    civicLiberty: number;
+    traditionalism: number;
+    solidarity: number;
+  };
+}
+
+type NumericPopulationGroupField = {
+  [K in keyof PopulationGroup]: PopulationGroup[K] extends number ? K : never
+}[keyof PopulationGroup];
+
+export type PopulationStateField =
+  | Exclude<NumericPopulationGroupField, 'id' | 'archetype' | 'count'>
+  | keyof PopulationGroup['attitudes'];
+
+type PrimitivePopulationTransitionField = {
+  [K in keyof PopulationGroup]: PopulationGroup[K] extends string | boolean | null ? K : never
+}[keyof PopulationGroup];
+
+export type PopulationTransitionField = PrimitivePopulationTransitionField;
 
 export interface Mapxel {
   id: number;
@@ -77,36 +153,8 @@ export type Field = {
   [K in keyof Mapxel]: Mapxel[K] extends number ? K : never
 }[keyof Mapxel];
 
-export const MUTABLE_FIELDS = [
-  'population',
-  'cash',
-  'food',
-  'materials',
-  'price',
-  'scarcityPrice',
-  'waterStress',
-  'children',
-  'seniors',
-  'education',
-  'health',
-  'happiness',
-  'approval',
-  'crime',
-  'pollution',
-  'infrastructure',
-  'employment',
-  'foodSecurity',
-  'sportsInterest',
-  ...SECTORS,
-  'output',
-  'foodMade',
-  'foodUsed',
-  'foodTraded',
-  'businessHealth',
-  'starvationDeaths',
-] as const satisfies readonly Field[];
-
-export type MutableField = typeof MUTABLE_FIELDS[number];
+type ImmutableNumericMapxelField = 'id' | 'x' | 'y' | 'region' | 'elevation' | 'fertility' | 'minerals';
+export type MutableField = Exclude<Field, ImmutableNumericMapxelField>;
 
 export interface Policy {
   incomeTax: number;
@@ -152,6 +200,9 @@ export interface Budget {
 
 export interface Model {
   seed: string;
+  archetypeModelVersion: number;
+  populationGroups: PopulationGroup[][];
+  nextPopulationGroupId: number;
   width: number;
   height: number;
   tick: number;
@@ -190,7 +241,8 @@ export interface Summary extends Record<Metric, number> {
 
 export interface Observation {
   cell?: number;
-  field: MutableField;
+  group?: PopulationGroupId;
+  field: MutableField | PopulationStateField | 'count' | 'employed';
   value: number;
   label: string;
 }
@@ -225,7 +277,7 @@ export interface History {
 }
 
 export interface Game {
-  version: 3;
+  version: 4;
   model: Model;
   initial: Summary;
   history: History[];
@@ -249,7 +301,10 @@ export interface Evidence {
   title: string;
   detail: string;
   cells: number[];
-  reads?: { cell: number; field: MutableField; label: string }[];
+  reads?: (
+    | { cell: number; field: MutableField; label: string }
+    | { cell: number; group: PopulationGroupId; field: PopulationStateField | 'count' | 'employed'; label: string }
+  )[];
   parents?: string[];
 }
 
@@ -266,7 +321,7 @@ export type Effect =
       kind: 'transfer';
       from: Account;
       to: Account;
-      resource: 'cash' | 'food' | 'materials' | 'population';
+      resource: 'cash' | 'food' | 'materials';
       amount: number;
       evidence?: Evidence;
     }
@@ -293,6 +348,41 @@ export type Effect =
       key: string;
       article: Omit<Article, 'id' | 'tick' | 'causeIds'>;
       evidence: Evidence;
+    }
+  | {
+      kind: 'population-transfer';
+      group: PopulationGroupId;
+      from: number;
+      to: number;
+      amount: number;
+      evidence?: Evidence;
+    }
+  | {
+      kind: 'population-transition';
+      group: PopulationGroupId;
+      cell: number;
+      amount: number;
+      transition: Partial<Pick<PopulationGroup, PopulationTransitionField>>;
+      evidence?: Evidence;
+    }
+  | {
+      kind: 'population-state';
+      group: PopulationGroupId;
+      cell: number;
+      amount: number;
+      change: Partial<Record<PopulationStateField, number>>;
+      evidence?: Evidence;
+      eventKey?: string;
+    }
+  | {
+      kind: 'population-delta';
+      cell: number;
+      group?: PopulationGroupId;
+      archetype?: ArchetypeId;
+      amount: number;
+      cause: 'birth' | 'death';
+      state?: Omit<PopulationGroup, 'id' | 'archetype' | 'count'>;
+      evidence?: Evidence;
     };
 
 export const PHASES = [
@@ -304,9 +394,15 @@ export const PHASES = [
   'financing',
   'fiscal',
   'society',
+  'experience',
+  'behavior',
+  'aging',
+  'lifeStage',
+  'demographics',
   'migration',
   'adaptation',
   'events',
+  'projection',
 ] as const;
 
 export type Phase = typeof PHASES[number];

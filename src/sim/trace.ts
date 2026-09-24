@@ -40,10 +40,36 @@ type Proposal = {
   effect: Effect;
 };
 
+function cloneModel(model: Model): Model {
+  return {
+    ...model,
+    cells: model.cells.map(cell => ({ ...cell })),
+    populationGroups: model.populationGroups.map(groups => groups.map(group => ({
+      ...group,
+      attitudes: { ...group.attitudes },
+    }))),
+    neighbors: model.neighbors.map(neighbors => [...neighbors]),
+    regions: [...model.regions],
+    policy: {
+      ...model.policy,
+      spending: { ...model.policy.spending },
+      subsidies: { ...model.policy.subsidies },
+      laws: { ...model.policy.laws },
+    },
+    localSubsidies: model.localSubsidies.map(subsidy => ({
+      ...subsidy,
+      scope: subsidy.scope.kind === 'cells'
+        ? { ...subsidy.scope, ids: [...subsidy.scope.ids] }
+        : { ...subsidy.scope },
+    })),
+    budget: { ...model.budget },
+  };
+}
+
 function cloneGameForTrace(game: Game): Game {
   return {
     ...game,
-    model: structuredClone(game.model),
+    model: cloneModel(game.model),
     causes: [...game.causes],
     articles: [...game.articles],
     history: [...game.history],
@@ -53,8 +79,8 @@ function cloneGameForTrace(game: Game): Game {
 }
 
 function traceRule(
-  game: Game,
   snapshot: DeepReadonly<Model>,
+  lastEvents: Readonly<Record<string, number>>,
   rule: Rule,
 ): RuleTrace {
   const random = (cell: number, channel = '') => {
@@ -64,21 +90,16 @@ function traceRule(
   return {
     id: rule.id,
     description: rule.description,
-    effects: rule.run({
-      model: snapshot,
-      random,
-      lastEvents: Object.freeze({ ...game.lastEvents }),
-    }),
+    effects: rule.run({ model: snapshot, random, lastEvents }),
   };
 }
 
 function proposalsFromRules(rules: RuleTrace[]): Proposal[] {
-  return rules.flatMap(rule => {
-    return rule.effects.map(effect => ({
-      rule: rule.id,
-      effect,
-    }));
-  });
+  const proposals: Proposal[] = [];
+  for (const rule of rules) {
+    for (const effect of rule.effects) proposals.push({ rule: rule.id, effect });
+  }
+  return proposals;
 }
 
 /**
@@ -106,16 +127,17 @@ export function traceStep(
     const activeRules = orderedRules.filter(rule => rule.phase === phase);
     if (activeRules.length === 0) continue;
 
-    const before = structuredClone(next.model);
-    const snapshot = deepFreeze(structuredClone(next.model));
+    const before = cloneModel(next.model);
+    const snapshot = deepFreeze(cloneModel(next.model));
     const causesBefore = next.causes.length;
     const articlesBefore = next.articles.length;
-    const ruleTraces = activeRules.map(rule => traceRule(next, snapshot, rule));
+    const lastEvents = Object.freeze({ ...next.lastEvents });
+    const ruleTraces = activeRules.map(rule => traceRule(snapshot, lastEvents, rule));
 
     commitEffects(next, snapshot, proposalsFromRules(ruleTraces));
     assertModel(next.model);
 
-    const after = structuredClone(next.model);
+    const after = cloneModel(next.model);
     phases.push({
       phase,
       before,

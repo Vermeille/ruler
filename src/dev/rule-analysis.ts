@@ -154,7 +154,7 @@ const NORMALIZED_FIELDS = new Set<string>([
 ]);
 const MAX_INPUTS_PER_GROUP = 5;
 const MAX_ANALYZED_INPUTS = 72;
-const MAX_INPUT_GROUPS = 14;
+const MAX_INPUT_GROUPS = 32;
 const MAX_OUTPUT_GROUPS = 10;
 
 function words(value: string): string {
@@ -181,6 +181,21 @@ function classifyModelRead(
       cell,
       perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
       example: `${model.cells[cell]?.name ?? `cell ${cell}`} · ${field}`,
+    };
+  }
+
+  const groupMatch = /^populationGroups\.(\d+)\.\d+\.([^.]+)(?:\.([^.]+))?$/.exec(path);
+  if (groupMatch) {
+    const cell = Number(groupMatch[1]);
+    const field = groupMatch[3] ?? groupMatch[2];
+    const structural = ['id', 'archetype', 'lifeStage', 'occupation'].includes(field);
+    return {
+      groupKey: `population.${field}`,
+      groupLabel: structural ? `Group ${words(field)} (structure)` : `Group ${words(field)}`,
+      category: structural ? 'structure' : 'cell',
+      cell,
+      perturbable: !structural && (typeof value === 'number' || typeof value === 'boolean'),
+      example: `${model.cells[cell]?.name ?? `cell ${cell}`} · group ${field}`,
     };
   }
 
@@ -228,6 +243,8 @@ function classifyModelRead(
   }
 
   const structural = path === 'seed'
+    || path === 'archetypeModelVersion'
+    || path === 'nextPopulationGroupId'
     || path === 'width'
     || path === 'height'
     || path === 'tick'
@@ -419,6 +436,38 @@ function outputChannels(effects: readonly Effect[]): VectorChannel[] {
           value: 1,
         });
         break;
+      case 'population-transfer':
+        channels.push({
+          key: `population-transfer:${effect.group}:${effect.from}:${effect.to}`,
+          groupKey: 'population.transfer', groupLabel: 'Population Group Flow', value: effect.amount,
+        });
+        break;
+      case 'population-transition':
+        for (const [field, value] of Object.entries(effect.transition)) {
+          channels.push({
+            key: `population-transition:${effect.group}:${field}:${String(value)}`,
+            groupKey: `population.transition.${field}`,
+            groupLabel: `Group ${words(field)} Transition`, value: effect.amount,
+          });
+        }
+        break;
+      case 'population-state':
+        for (const [field, change] of Object.entries(effect.change)) {
+          channels.push({
+            key: `population-state:${effect.group}:${field}`,
+            groupKey: `population.state.${field}`,
+            groupLabel: `Group ${words(field)} Change`, value: change * effect.amount,
+          });
+        }
+        break;
+      case 'population-delta':
+        channels.push({
+          key: `population-delta:${effect.cell}:${effect.group ?? effect.archetype}:${effect.cause}`,
+          groupKey: `population.${effect.cause}`,
+          groupLabel: `Population ${words(effect.cause)}`,
+          value: effect.amount,
+        });
+        break;
     }
   }
 
@@ -574,6 +623,15 @@ function effectCellActivity(
       case 'event':
         for (const cell of effect.evidence.cells) add(cell, 1);
         if (effect.article.cell !== undefined) add(effect.article.cell, 1);
+        break;
+      case 'population-transfer':
+        add(effect.from, effect.amount / Math.max(1, model.cells[effect.from].population));
+        add(effect.to, effect.amount / Math.max(1, model.cells[effect.to].population));
+        break;
+      case 'population-transition':
+      case 'population-state':
+      case 'population-delta':
+        add(effect.cell, effect.amount / Math.max(1, model.cells[effect.cell].population));
         break;
       case 'budget':
       case 'repayDebt':
@@ -773,6 +831,10 @@ function outputKeyForEffect(effect: Effect): string {
     case 'trade': return `trade.${effect.resource}.amount`;
     case 'budget': return 'budget.debtDelta';
     case 'event': return `event.${effect.key}`;
+    case 'population-transfer': return 'population.transfer';
+    case 'population-transition': return 'population.transition';
+    case 'population-state': return 'population.state';
+    case 'population-delta': return `population.${effect.cause}`;
   }
 }
 
@@ -820,6 +882,21 @@ function buildFootprint(
         amount: effect.amount,
         score: 0,
       });
+    } else if (effect.kind === 'population-transfer') {
+      addOutput(effect.from, outputKey);
+      addOutput(effect.to, outputKey);
+      flows.push({
+        key: `population-transfer:${index}`,
+        from: effect.from,
+        to: effect.to,
+        outputKey,
+        label: 'Population group flow',
+        amount: effect.amount,
+        score: 0,
+      });
+    } else if (effect.kind === 'population-transition'
+      || effect.kind === 'population-state' || effect.kind === 'population-delta') {
+      addOutput(effect.cell, outputKey);
     } else if (effect.kind === 'event') {
       for (const cell of effect.evidence.cells) addOutput(cell, outputKey);
     }

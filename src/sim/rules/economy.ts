@@ -1,5 +1,4 @@
 import { clamp } from '../math';
-import { subsidyFor } from '../policy';
 import {
   SECTORS,
   type DeepReadonly,
@@ -228,60 +227,6 @@ export const marketRule: Rule = {
         changeToward(cell, 'scarcityPrice', targetPrice, 0.14),
         changeToward(cell, 'businessHealth', businessTarget, 0.15, businessEvidence),
       ];
-    });
-  },
-};
-
-function laborAppealBase(cell: DeepReadonly<Mapxel>): Record<typeof SECTORS[number], number> {
-  return {
-    agriculture: 0.24 + cell.fertility * 0.19,
-    manufacturing: 0.13 + cell.minerals * 0.1,
-    services: 0.36,
-    sports: 0.045 + cell.sportsInterest * 0.06,
-  };
-}
-
-export const adaptationRule: Rule = {
-  id: 'economy.labor',
-  phase: 'adaptation',
-  description: 'Workers slowly shift toward profitable industries. Subsidies attract labor; high food prices pull workers back into farming.',
-  run({ model }) {
-    return model.cells.filter(isLand).flatMap(cell => {
-      const base = laborAppealBase(cell);
-      const returns = {
-        agriculture: (cell.price - 1) * 1.1,
-        manufacturing: cell.education * 0.2 - (model.policy.laws.cleanAir ? 0.08 : 0),
-        services: (cell.businessHealth - 0.85) * 0.8,
-        sports: cell.sportsInterest * 0.25,
-      };
-      const weights = SECTORS.map(sector => {
-        const subsidy = subsidyFor(model, cell, sector) * model.budget.funding * 1.1;
-        const returnSignal = clamp(returns[sector] + subsidy, -2, 4);
-        return base[sector] * Math.exp(returnSignal);
-      });
-      const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-
-      return SECTORS.map((sector, index) => {
-        const target = weights[index] / totalWeight;
-        const amount = (target - cell[sector]) * 0.065;
-        const significant = Math.abs(amount) > 0.0035
-          && (model.tick % 3 === 0 || model.tick === 1);
-        const evidence = significant
-          ? {
-              title: `${cell.name}: workers ${amount > 0 ? 'enter' : 'leave'} ${sector}`,
-              detail: `${Math.abs(amount * cell.population).toFixed(1)} residents' worth of employment shifts ${amount > 0 ? 'into' : 'out of'} ${sector}. Local food prices, business conditions, and relative subsidies determine the new mix.`,
-              cells: [cell.id],
-              reads: [
-                read(cell, 'price', 'Food price signal'),
-                read(cell, 'businessHealth', 'Business viability'),
-                read(cell, 'sportsInterest', 'Demand for sport'),
-              ],
-              parents: SECTORS.map(key => `${cell.id}:subsidy:${key}`),
-            }
-          : undefined;
-
-        return delta(cell, sector, amount, evidence);
-      });
     });
   },
 };

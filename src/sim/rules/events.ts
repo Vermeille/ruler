@@ -3,6 +3,7 @@ import type {
   Effect,
   Evidence,
   Mapxel,
+  PopulationGroup,
   Rule,
 } from '../types';
 import { delta, isLand, read } from './helpers';
@@ -11,13 +12,38 @@ function violentCrimeChance(cell: DeepReadonly<Mapxel>): number {
   return 0.05 + cell.crime * 0.8;
 }
 
+type WellbeingShock = {
+  cell: number;
+  group: DeepReadonly<PopulationGroup>;
+  change: number;
+  eventKeys: Set<string>;
+};
+
 export const eventRule: Rule = {
   id: 'stories.events',
   phase: 'events',
-  description: 'Seeded, risk-conditioned events create shared memories and feed back into local and national life.',
+  description: 'Seeded, risk-conditioned events change the world and the population groups who experience them.',
   run({ model, random, lastEvents }) {
     const effects: Effect[] = [];
     const candidates = model.cells.filter(isLand);
+    const wellbeingShocks = new Map<number, WellbeingShock>();
+    const shockWellbeing = (cell: DeepReadonly<Mapxel>, change: number, eventKey: string) => {
+      for (const group of model.populationGroups[cell.id]) {
+        const current = wellbeingShocks.get(group.id);
+        if (current) {
+          current.change += change;
+          current.eventKeys.add(eventKey);
+        } else {
+          wellbeingShocks.set(group.id, {
+            cell: cell.id,
+            group,
+            change,
+            eventKeys: new Set([eventKey]),
+          });
+        }
+      }
+    };
+
     for (const cell of candidates) {
       if (cell.waterStress > 0) effects.push(delta(cell, 'waterStress', -cell.waterStress * 0.35));
     }
@@ -57,13 +83,8 @@ export const eventRule: Rule = {
       });
 
       for (const cell of candidates) {
-        effects.push({
-          kind: 'delta',
-          cell: cell.id,
-          field: 'happiness',
-          amount: cell.id === crime.id ? -0.06 : -0.008,
-          eventKey: 'violentCrime',
-        });
+        const shock = cell.id === crime.id ? -0.06 : -0.008;
+        shockWellbeing(cell, shock, 'violentCrime');
       }
     }
 
@@ -98,7 +119,6 @@ export const eventRule: Rule = {
           },
         },
         delta(sport, 'sportsInterest', 0.15),
-        delta(sport, 'happiness', 0.04),
         {
           kind: 'transfer',
           from: 'external',
@@ -107,6 +127,7 @@ export const eventRule: Rule = {
           amount: sport.population * 0.4,
         },
       );
+      shockWellbeing(sport, 0.04, 'festival');
     }
 
     const farm = choose('weather-place');
@@ -148,6 +169,18 @@ export const eventRule: Rule = {
         ));
         effects.push({ kind: 'delta', cell: cell.id, field: 'waterStress', amount: (1 - cell.waterStress) * 0.4, eventKey: 'drought' });
       }
+    }
+
+    for (const { cell, group, change, eventKeys } of wellbeingShocks.values()) {
+      if (Math.abs(change) <= 1e-12) continue;
+      effects.push({
+        kind: 'population-state',
+        cell,
+        group: group.id,
+        amount: group.count,
+        change: { wellbeing: change },
+        eventKey: eventKeys.size === 1 ? eventKeys.values().next().value : undefined,
+      });
     }
 
     return effects;

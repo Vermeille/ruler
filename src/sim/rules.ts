@@ -1,25 +1,39 @@
 import {
-  adaptationRule,
   consumptionRule,
   marketRule,
   productionRule,
   tradeRule,
 } from './rules/economy';
+import { environmentRule } from './rules/environment';
 import { eventRule } from './rules/events';
-import { migrationRule, societyRule } from './rules/society';
+import { populationAggregationRule } from './population/aggregation';
+import { populationExperienceRule } from './population/experience';
+import { populationCrimeRule } from './population/crime';
+import { populationEmploymentRule } from './population/employment';
+import { populationAgingRule, populationLifeStageRule } from './population/aging';
+import { populationDemographicsRule } from './population/demographics';
+import { migrationRule } from './population/migration';
+import { retrainingRule } from './population/retraining';
 import { financingRule, fiscalRule, taxationRule } from './rules/state';
 import type { Rule } from './types';
 
 export {
-  adaptationRule,
   consumptionRule,
+  environmentRule,
   eventRule,
   financingRule,
   fiscalRule,
   marketRule,
   migrationRule,
   productionRule,
-  societyRule,
+  populationAggregationRule,
+  populationExperienceRule,
+  populationCrimeRule,
+  populationEmploymentRule,
+  populationAgingRule,
+  populationLifeStageRule,
+  populationDemographicsRule,
+  retrainingRule,
   taxationRule,
   tradeRule,
 };
@@ -32,8 +46,15 @@ export const defaultRules: readonly Rule[] = [
   taxationRule,
   financingRule,
   fiscalRule,
-  societyRule,
+  environmentRule,
+  populationEmploymentRule,
+  populationExperienceRule,
+  populationCrimeRule,
+  populationAgingRule,
+  populationLifeStageRule,
+  populationDemographicsRule,
   migrationRule,
-  adaptationRule,
+  retrainingRule,
   eventRule,
+  populationAggregationRule,
 ];
