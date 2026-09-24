@@ -11,9 +11,10 @@ import { createGame } from '../src/sim/world';
 test('mapxel field registry owns mutable field mechanics', () => {
   assert.deepEqual(new Set(MUTABLE_FIELDS), new Set(Object.keys(MAPXEL_FIELDS)));
   assert.equal(MAPXEL_FIELDS.cash.delta, false);
+  assert.equal(MAPXEL_FIELDS.population.delta, false);
+  assert.equal('resource' in MAPXEL_FIELDS.population, false);
   assert.equal(MAPXEL_FIELDS.food.resource, 'food');
   assert.equal(MAPXEL_FIELDS.materials.resource, 'materials');
-  assert.equal(MAPXEL_FIELDS.population.resource, 'population');
   assert.equal(constrainMapxelFieldValue('price', 99), 5);
   assert.equal(constrainMapxelFieldValue('happiness', -2), 0);
   assert.equal(constrainMapxelFieldValue('foodTraded', -2), -2);
