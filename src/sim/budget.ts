@@ -1,0 +1,49 @@
+import { SECTORS, type DeepReadonly, type Model, type StepCache } from './types';
+import { subsidyFor } from './policy';
+
+export type StepBudgetForecast = {
+  revenue: number;
+  spending: number;
+  interest: number;
+  balance: number;
+};
+
+/**
+ * Fiscal execution uses the same step-start people summary as every other rule.
+ * This deliberately avoids the persisted human compatibility projections on Mapxel.
+ */
+export function forecastBudgetForStep(
+  model: DeepReadonly<Model>,
+  cache: DeepReadonly<StepCache>,
+): StepBudgetForecast {
+  const publicServices = Object.values(model.policy.spending)
+    .reduce((sum, amount) => sum + amount, 0);
+  const effectiveTaxRate = 0.7 * model.policy.incomeTax + 0.3 * model.policy.businessTax;
+  let revenue = 0;
+  let spending = 0;
+
+  for (const cell of model.cells) {
+    if (cell.biome === 'water') continue;
+    const people = cache.peopleByCell[cell.id];
+    if (people.population <= 0) continue;
+
+    revenue += cell.output * effectiveTaxRate;
+    const subsidies = SECTORS.reduce(
+      (sum, sector) => sum + people.occupationShares[sector] * subsidyFor(model, cell, sector),
+      0,
+    );
+    spending += people.population * (publicServices + subsidies);
+  }
+
+  const interest = model.debt * 0.003;
+  return {
+    revenue,
+    spending,
+    interest,
+    balance: revenue - spending - interest,
+  };
+}
+
+export function debtLimitForStep(cache: DeepReadonly<StepCache>): number {
+  return cache.peopleByCell.reduce((sum, people) => sum + people.population, 0) * 30;
+}
