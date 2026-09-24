@@ -58,6 +58,12 @@ function eventOutcomes(
 }
 
 /** Exogenous and local world events alter places and create the event record. */
+// [I] EVENT-WATER-RECOVERY1
+// [I] EVENT-CRIME1
+// [I] EVENT-FESTIVAL1
+// [I] EVENT-FESTIVAL-EFFECT1
+// [I] EVENT-DROUGHT1
+// [I] EVENT-DROUGHT-EFFECT1
 export const eventRule: Rule = {
   id: 'stories.events',
   direction: 'mapxel-to-mapxel',
@@ -186,6 +192,8 @@ type WellbeingShock = {
 };
 
 /** The same event draws are translated into the experience of the people who live through them. */
+// [I] EVENT-CRIME-WELLBEING1
+// [I] EVENT-FESTIVAL-EFFECT1
 export const populationEventExperienceRule: Rule = {
   id: 'population.event-experience',
   direction: 'mapxel-to-people',
