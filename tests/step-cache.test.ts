@@ -72,6 +72,7 @@ test('one cache instance is reused for the whole step and rebuilt on the next st
     phase: 'production',
     description: 'Observe the step cache before population changes.',
     run({ cache }) {
+      assert.ok(cache);
       seen.push(cache);
       return [];
     },
@@ -98,6 +99,7 @@ test('one cache instance is reused for the whole step and rebuilt on the next st
     phase: 'events',
     description: 'Observe the same cache after population changes settled.',
     run({ cache }) {
+      assert.ok(cache);
       seen.push(cache);
       return [];
     },
