@@ -1,3 +1,6 @@
+import { MUTABLE_FIELDS } from './map-fields';
+export { MUTABLE_FIELDS };
+
 export const SECTORS = [
   'agriculture',
   'manufacturing',
@@ -150,36 +153,8 @@ export type Field = {
   [K in keyof Mapxel]: Mapxel[K] extends number ? K : never
 }[keyof Mapxel];
 
-export const MUTABLE_FIELDS = [
-  'population',
-  'cash',
-  'food',
-  'materials',
-  'price',
-  'scarcityPrice',
-  'waterStress',
-  'children',
-  'seniors',
-  'education',
-  'health',
-  'happiness',
-  'approval',
-  'crime',
-  'pollution',
-  'infrastructure',
-  'employment',
-  'foodSecurity',
-  'sportsInterest',
-  ...SECTORS,
-  'output',
-  'foodMade',
-  'foodUsed',
-  'foodTraded',
-  'businessHealth',
-  'starvationDeaths',
-] as const satisfies readonly Field[];
-
-export type MutableField = typeof MUTABLE_FIELDS[number];
+type ImmutableNumericMapxelField = 'id' | 'x' | 'y' | 'region' | 'elevation' | 'fertility' | 'minerals';
+export type MutableField = Exclude<Field, ImmutableNumericMapxelField>;
 
 export interface Policy {
   incomeTax: number;

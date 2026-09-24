@@ -1,4 +1,5 @@
-import { deepFreeze, randomAt, summarize, clamp } from './math';
+import { deepFreeze, randomAt, summarize } from './math';
+import { constrainMapxelFieldValue, mapxelFieldSpec, validMapxelFieldValue } from './map-fields';
 import { writeMonthlyNews } from './narrative';
 import { defaultRules } from './rules';
 import { ARCHETYPE_COUNT, ARCHETYPE_MODEL_VERSION } from './population/archetypes';
@@ -27,24 +28,6 @@ type ProvenanceWrites = Record<string, string>;
 type SettlementPlan = {
   demands: Map<string, number>;
 };
-
-const BOUNDED_FIELDS = new Set<MutableField>([
-  'waterStress',
-  'children',
-  'seniors',
-  'education',
-  'health',
-  'happiness',
-  'approval',
-  'crime',
-  'pollution',
-  'infrastructure',
-  'employment',
-  'foodSecurity',
-  'sportsInterest',
-  'businessHealth',
-  ...SECTORS,
-]);
 
 const TRUSTED_RULES = new Set<Rule>(defaultRules);
 
@@ -233,14 +216,14 @@ function planDeltaDemand(
   effect: Extract<Effect, { kind: 'delta' }>,
 ): void {
   const cell = snapshot.cells[effect.cell];
-  const invalidField = !MUTABLE_FIELDS.includes(effect.field) || effect.field === 'cash';
+  const spec = mapxelFieldSpec(effect.field);
 
-  if (invalidField || !cell || cell.biome === 'water') {
-    throw new Error('Invalid delta; cash must use transfers.');
+  if (!spec?.delta || !cell || cell.biome === 'water') {
+    throw new Error('Invalid delta; this field must use its dedicated effect.');
   }
 
-  if (effect.amount < 0 && ['food', 'materials', 'population'].includes(effect.field)) {
-    addDemand(demands, snapshot, effect.cell, effect.field as Resource, -effect.amount);
+  if (effect.amount < 0 && spec.resource) {
+    addDemand(demands, snapshot, effect.cell, spec.resource, -effect.amount);
   }
 }
 
@@ -337,9 +320,10 @@ function settleDelta(
   effect: Extract<Effect, { kind: 'delta' }>,
 ): number {
   let actual = effect.amount;
+  const resource = mapxelFieldSpec(effect.field)?.resource;
 
-  if (actual < 0 && ['food', 'materials', 'population'].includes(effect.field)) {
-    actual *= demandScale(snapshot, demands, effect.cell, effect.field as Resource);
+  if (actual < 0 && resource) {
+    actual *= demandScale(snapshot, demands, effect.cell, resource);
   }
 
   const key = `${effect.cell}:${effect.field}`;
@@ -464,17 +448,7 @@ function applyAccumulatedDeltas(game: Game, deltas: Map<string, number>): void {
   for (const [key, amount] of deltas) {
     const [cellId, field] = key.split(':') as [string, MutableField];
     const cell = game.model.cells[Number(cellId)];
-    const value = cell[field] + amount;
-
-    if (BOUNDED_FIELDS.has(field)) {
-      cell[field] = clamp(value);
-    } else if (field === 'price' || field === 'scarcityPrice') {
-      cell[field] = clamp(value, 0.4, 5);
-    } else if (field === 'foodTraded') {
-      cell[field] = value;
-    } else {
-      cell[field] = Math.max(0, value);
-    }
+    cell[field] = constrainMapxelFieldValue(field, cell[field] + amount);
   }
 }
 
@@ -643,10 +617,7 @@ export function assertModel(model: DeepReadonly<Model>): void {
   for (const cell of model.cells) {
     for (const field of MUTABLE_FIELDS) {
       const value = cell[field];
-      const belowMinimum = field !== 'foodTraded' && value < -1e-6;
-      const aboveMaximum = BOUNDED_FIELDS.has(field) && value > 1 + 1e-6;
-
-      if (!Number.isFinite(value) || belowMinimum || aboveMaximum) {
+      if (!validMapxelFieldValue(field, value, 1e-6)) {
         throw new Error(`Invalid ${field} in mapxel ${cell.id}: ${value}`);
       }
     }
@@ -662,9 +633,6 @@ export function assertModel(model: DeepReadonly<Model>): void {
       throw new Error('Invalid demographics.');
     }
 
-    if (cell.price < 0.4 || cell.price > 5 || cell.scarcityPrice < 0.4 || cell.scarcityPrice > 5) {
-      throw new Error('Food prices must remain in the calibrated range.');
-    }
     if (model.policy.laws.foodPriceControls && cell.price > 1 + 1e-6) {
       throw new Error('Posted food price exceeds the administered ceiling.');
     }

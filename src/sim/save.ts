@@ -1,4 +1,5 @@
 import { assertModel } from './engine';
+import { MUTABLE_FIELDS, isMutableMapxelField, validMapxelFieldValue } from './map-fields';
 import { validateAction } from './policy';
 import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
 import {
@@ -10,7 +11,6 @@ import {
 import { generatePopulation } from './population/generate';
 import {
   LAWS,
-  MUTABLE_FIELDS,
   SECTORS,
   SERVICES,
   type Game,
@@ -143,8 +143,9 @@ function validateCell(saved: unknown, base: Mapxel): void {
   if (!isRecord(saved)) return fail();
 
   for (const field of Object.keys(base) as (keyof Mapxel)[]) {
-    if (MUTABLE_FIELDS.includes(field as never)) {
-      if (!isFiniteNumber(saved[field])) return fail();
+    const fieldName = String(field);
+    if (isMutableMapxelField(fieldName)) {
+      if (!validMapxelFieldValue(fieldName, saved[field], 1e-6)) return fail();
     } else if (saved[field] !== base[field]) {
       return fail();
     }
