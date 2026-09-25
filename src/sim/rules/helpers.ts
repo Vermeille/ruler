@@ -18,13 +18,15 @@ export function delta<Field extends MutableField>(
   amount: MapxelQuantity<Field>,
   evidence?: Evidence,
 ): Effect {
+  // The generic parameters enforce the field/quantity pairing. TypeScript cannot
+  // materialize that relationship as the mapped discriminated Effect union here.
   return {
     kind: 'delta',
     cell: cell.id,
     field,
     amount,
     evidence,
-  };
+  } as Effect;
 }
 
 export function changeToward<Field extends MutableField>(
