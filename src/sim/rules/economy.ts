@@ -27,9 +27,10 @@ import { unitOutput, viableJobs } from './wages';
 // World generation starts ordinary rural infrastructure at 0.52. Treat that as
 // neutral productivity and let better/worse infrastructure modestly change how
 // effectively labor becomes market output. An 8-point infrastructure improvement
-// therefore contributes roughly +0.64% output before downstream feedback.
+// therefore contributes roughly +0.52% output before downstream feedback.
 const REFERENCE_INFRASTRUCTURE = 0.52;
-const INFRASTRUCTURE_PRODUCTIVITY_SENSITIVITY = 0.08;
+const INFRASTRUCTURE_PRODUCTIVITY_SENSITIVITY = 0.065;
+const INFRASTRUCTURE_NUMERICAL_EPSILON = 1e-6;
 
 // [I] ECONOMY-PRODUCTION1
 // [I] ECONOMY-FARM1
@@ -62,8 +63,12 @@ export const productionRule: Rule = {
         * (1.4 + cell.minerals)
         * labor
         * (model.policy.laws.cleanAir ? 0.9 : 1));
+      const rawInfrastructureDelta = cell.infrastructure - REFERENCE_INFRASTRUCTURE;
+      const infrastructureDelta = Math.abs(rawInfrastructureDelta) < INFRASTRUCTURE_NUMERICAL_EPSILON
+        ? 0
+        : rawInfrastructureDelta;
       const infrastructureProductivity = 1
-        + (cell.infrastructure - REFERENCE_INFRASTRUCTURE) * INFRASTRUCTURE_PRODUCTIVITY_SENSITIVITY;
+        + infrastructureDelta * INFRASTRUCTURE_PRODUCTIVITY_SENSITIVITY;
       const output = crownsPerMonth(localPeople.population * labor * infrastructureProductivity * SECTORS.reduce(
         (sum, sector) => sum + localPeople.occupationShares[sector] * unitOutput(cell, model, sector), 0,
       ));
