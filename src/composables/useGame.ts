@@ -84,7 +84,7 @@ export function useGame(notifications: GameNotifications) {
     timer = setTimeout(() => {
       advance();
       schedule();
-    }, 1200 / speed.value);
+    }, 5000 / speed.value);
   }
 
   function toggleRunning(): void {
