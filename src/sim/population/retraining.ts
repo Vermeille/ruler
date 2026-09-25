@@ -11,6 +11,7 @@ import {
   type Sector,
   type StepPeopleSummary,
 } from '../types';
+import { foodPrice, relativeFoodPrice } from '../units';
 import { unitOutput, viableJobs } from '../rules/wages';
 import { archetypeAt } from './archetypes';
 import { quantizeCohortFlow } from './resolution';
@@ -30,7 +31,7 @@ function sectorOpportunity(
         ? 0.45 + cell.businessHealth * 0.55
         : 0.35 + cell.sportsInterest * 0.65;
   const marketSignal = sector === 'agriculture'
-    ? (cell.price - 1) * 1.1
+    ? (relativeFoodPrice(foodPrice(cell.price)) - 1) * 1.1
     : sector === 'manufacturing'
       ? (model.policy.laws.cleanAir ? -0.08 : 0)
       : sector === 'services'
@@ -176,7 +177,7 @@ export const retrainingRule: Rule = {
               { cell: cell.id, group: group.id, field: 'education' as const, label: 'Group education' },
               { cell: cell.id, group: group.id, field: 'employed' as const, label: 'Current employment' },
               { cell: cell.id, field: 'education' as const, label: 'Local education access' },
-              { cell: cell.id, field: 'price' as const, label: 'Local price signal' },
+              { cell: cell.id, field: 'price' as const, label: 'Local food price' },
             ],
             parents: [`${cell.id}:subsidy:${opportunity}`],
           } : undefined,
