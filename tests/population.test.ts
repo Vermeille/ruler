@@ -249,7 +249,7 @@ test('legacy version-three saves gain deterministic groups and current saves rej
   const text = JSON.stringify(legacy);
   const a = deserialize(text);
   const b = deserialize(text);
-  assert.equal(a.version, 4);
+  assert.equal(a.version, 5);
   assert.deepEqual(a.model.populationGroups, b.model.populationGroups);
   assertModel(a.model);
 

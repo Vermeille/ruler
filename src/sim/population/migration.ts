@@ -50,23 +50,27 @@ function migrationAppeal(
   );
   const health = atHome ? group.health : cell.health;
   const needs = archetype.needs;
-  const weight = needs.food
+  const foodWeight = needs.food * group.salienceFood;
+  const healthWeight = needs.health * group.salienceHealth;
+  const safetyWeight = needs.safety * group.salienceSafety;
+  const educationWeight = needs.education * group.salienceEducation;
+  const weight = foodWeight
     + needs.income
     + needs.employment
-    + needs.health
-    + needs.safety
+    + healthWeight
+    + safetyWeight
     + needs.housing
-    + needs.education
+    + educationWeight
     + needs.environment
     + needs.culture;
   const lived = (
-    needs.food * food
+    foodWeight * food
     + needs.income * purchasingPower
     + needs.employment * employment
-    + needs.health * health
-    + needs.safety * (1 - cell.crime)
+    + healthWeight * health
+    + safetyWeight * (1 - cell.crime)
     + needs.housing * clamp(1 - population / 20_000)
-    + needs.education * cell.education
+    + educationWeight * cell.education
     + needs.environment * (1 - cell.pollution)
     + needs.culture * culture
   ) / weight;
@@ -74,13 +78,24 @@ function migrationAppeal(
   return lived + communityMood * 0.25;
 }
 
+function displacementPressure(cell: DeepReadonly<Mapxel>): number {
+  return clamp(Math.max(
+    (1 - cell.foodSecurity) * 1.15,
+    cell.waterStress * 0.9,
+    Math.max(0, cell.crime - 0.22) * 1.35,
+    cell.healthDisruption * 0.95,
+    cell.educationDisruption * 0.45,
+    cell.infrastructureDisruption * 0.75,
+    Math.max(0, 0.48 - cell.health) * 1.4,
+  ));
+}
+
 function planMigration(
   model: DeepReadonly<Model>,
   cache: DeepReadonly<StepCache>,
   random: MigrationRandom,
 ): PlannedMigration[] {
-  if (model.tick % 3 !== 0) return [];
-
+  const ordinaryMigrationMonth = model.tick % 3 === 0;
   const planned: PlannedMigration[] = [];
   const culture = clamp(0.5 + model.policy.spending.culture * model.budget.funding);
   const viability = model.cells.map(cell => (
@@ -91,6 +106,8 @@ function planMigration(
 
   for (const from of model.cells) {
     if (!isLand(from)) continue;
+    const crisis = displacementPressure(from);
+    if (!ordinaryMigrationMonth && crisis < 0.25) continue;
     const originPeople = cache.peopleByCell[from.id];
     const originViability = viability[from.id]!;
 
@@ -117,6 +134,7 @@ function planMigration(
         if (to.biome === 'water') continue;
         const destinationPeople = cache.peopleByCell[to.id];
         const jobChance = group.occupation ? viability[to.id]![group.occupation] : 0.5;
+        const relief = Math.max(0, crisis - displacementPressure(to));
         const advantage = migrationAppeal(
           group,
           archetype,
@@ -126,7 +144,7 @@ function planMigration(
           jobChance,
           culture,
           false,
-        ) - originAppeal;
+        ) - originAppeal + relief * 0.32;
         if (
           advantage > bestAdvantage
           || (advantage === bestAdvantage && bestCell && to.id < bestCell.id)
@@ -137,14 +155,27 @@ function planMigration(
       }
       if (!bestCell || bestAdvantage <= 0) continue;
 
-      const means = clamp(group.wealth / 10, 0.2, 1);
-      const hardship = 1 + (1 - group.wellbeing) * 0.4 + (group.employed ? 0 : 0.25);
+      const ordinaryMeans = clamp(group.wealth / 10, 0.2, 1);
+      const displacementMeans = Math.max(ordinaryMeans, crisis * 0.78);
+      const means = crisis >= 0.25 ? displacementMeans : ordinaryMeans;
+      const hardship = 1
+        + (1 - group.wellbeing) * 0.4
+        + (group.employed ? 0 : 0.25)
+        + Math.max(0, -group.outlook) * 0.4;
       const propensity = (0.2 + archetype.traits.mobility)
         * (1 - archetype.traits.communityAttachment * 0.75)
         * means
         * hardship;
-      const freedomMultiplier = model.policy.laws.freeMovement ? 1 : 0.08;
-      const rate = Math.min(0.009, bestAdvantage * 0.021 * propensity) * freedomMultiplier;
+      const freedomMultiplier = model.policy.laws.freeMovement
+        ? 1
+        : crisis >= 0.45 ? 0.22 : 0.08;
+      const ordinaryRate = ordinaryMigrationMonth
+        ? Math.min(0.009, bestAdvantage * 0.021 * propensity)
+        : 0;
+      const displacementRate = crisis >= 0.25
+        ? Math.min(0.055, Math.max(0, crisis - 0.2) * 0.065 * (0.55 + propensity * 0.45))
+        : 0;
+      const rate = Math.max(ordinaryRate, displacementRate) * freedomMultiplier;
       const desiredAmount = group.count * rate;
       if (desiredAmount <= 1e-9) continue;
 
@@ -162,12 +193,17 @@ function planMigration(
         amount,
         evidence: amount >= 0.5
           ? {
-              title: `${from.name}: archetype #${group.archetype} moves toward ${bestCell.name}`,
-              detail: `${amount.toFixed(1)} people move because this group values the destination more under its own needs and circumstances. Employment status, income, reserves, mobility, community attachment, prices, services, safety, and environment all contribute.`,
+              title: crisis >= 0.25
+                ? `${from.name}: hardship displaces archetype #${group.archetype} toward ${bestCell.name}`
+                : `${from.name}: archetype #${group.archetype} moves toward ${bestCell.name}`,
+              detail: crisis >= 0.25
+                ? `${amount.toFixed(1)} people leave under severe local pressure. Food, water, safety, service failures, outlook, means, mobility, community attachment, and destination relief all shape the flow.`
+                : `${amount.toFixed(1)} people move because this group values the destination more under its own needs and circumstances. Employment status, income, reserves, outlook, mobility, community attachment, prices, services, safety, and environment all contribute.`,
               cells: [from.id, bestCell.id],
               reads: [
                 { cell: from.id, group: group.id, field: 'wealth', label: 'Group reserves' },
                 { cell: from.id, group: group.id, field: 'wellbeing', label: 'Group wellbeing' },
+                { cell: from.id, group: group.id, field: 'outlook', label: 'Group outlook' },
                 { cell: from.id, group: group.id, field: 'employed', label: 'Current employment' },
                 { cell: bestCell.id, field: 'price', label: 'Destination prices' },
                 { cell: bestCell.id, field: 'foodSecurity', label: 'Destination food access' },
@@ -188,12 +224,15 @@ function planMigration(
 // [I] MIGRATION-MEANS1
 // [I] MIGRATION-ROOTS1
 // [I] MIGRATION-FREEDOM1
+// [I] CRISIS-DISPLACEMENT1
+// [I] EXPECTATIONS1
+// [I] PUBLIC-SALIENCE1
 export const migrationRule: Rule = {
   id: 'population.migration',
   direction: 'mapxel-to-people',
   randomNamespace: 'population.migration',
   phase: 'migration',
-  description: 'Each quarter, adult groups evaluate nearby places and move when another place better fits their needs and circumstances.',
+  description: 'Adults normally evaluate nearby places quarterly; severe local crises can create faster displacement toward safer neighboring conditions.',
   run({ model, cache, random }) {
     const peopleCache = resolveStepCache(model, cache);
     return planMigration(model, peopleCache, random).map(move => ({
@@ -209,12 +248,13 @@ export const migrationRule: Rule = {
 
 /** Moving residents carry a proportional share of pooled private reserves to the destination. */
 // [I] MIGRATION-CASH1
+// [I] CRISIS-DISPLACEMENT1
 export const migrationCashRule: Rule = {
   id: 'population.migration-cash',
   direction: 'people-to-mapxel',
   randomNamespace: 'population.migration',
   phase: 'migration',
-  description: 'The residents who move carry a proportional share of local private cash with them.',
+  description: 'The residents who move, including people displaced by crises, carry a proportional share of local private cash with them.',
   run({ model, cache, random }) {
     const peopleCache = resolveStepCache(model, cache);
     const byRoute = new Map<string, { from: number; to: number; amount: number }>();

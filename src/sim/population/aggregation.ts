@@ -9,11 +9,11 @@ import {
   type Sector,
 } from '../types';
 
-type ProjectionParentKind = 'occupation' | 'employed' | 'wellbeing' | 'approval' | 'lifeStage';
+type ProjectionParentKind = 'occupation' | 'employed' | 'wellbeing' | 'approval' | 'lifeStage' | 'mobilization' | 'infection';
 type ProjectionParentCache = Partial<Record<ProjectionParentKind, string[]>>;
 
 const PROJECTED_FIELDS: readonly MutableField[] = [
-  'employment', 'happiness', 'approval', 'children', 'seniors',
+  'employment', 'happiness', 'approval', 'children', 'seniors', 'unrest', 'infection',
   'agriculture', 'manufacturing', 'services', 'sports',
 ];
 
@@ -23,6 +23,8 @@ function parentKind(field: MutableField): ProjectionParentKind | undefined {
   if (field === 'happiness') return 'wellbeing';
   if (field === 'approval') return 'approval';
   if (field === 'children' || field === 'seniors') return 'lifeStage';
+  if (field === 'unrest') return 'mobilization';
+  if (field === 'infection') return 'infection';
   return undefined;
 }
 
@@ -54,7 +56,8 @@ function projectionEvidence(
     ? 0.0025
     : field === 'employment' || field === 'children' || field === 'seniors'
       ? 0.005
-      : 0.01;
+      : field === 'unrest' || field === 'infection' ? 0.015
+        : 0.01;
   if (amount < threshold) return undefined;
 
   const place = model.cells[cell];
@@ -62,7 +65,9 @@ function projectionEvidence(
     ? `${field} workforce share`
     : field === 'happiness' ? 'resident wellbeing'
       : field === 'approval' ? 'resident approval'
-        : field;
+        : field === 'unrest' ? 'visible unrest'
+          : field === 'infection' ? 'resident infection load'
+            : field;
   return {
     title: `${place.name}: ${label} follows residents`,
     detail: `${label} moves from ${(before * 100).toFixed(1)}% to ${(after * 100).toFixed(1)}% because this mapxel now contains a different mix of resident states. The mapxel field is a compatibility projection of people, not an independent social variable.`,
@@ -71,7 +76,7 @@ function projectionEvidence(
   };
 }
 
-function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'employment' | 'happiness' | 'approval' | 'children' | 'seniors' | Sector, number> {
+function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'employment' | 'happiness' | 'approval' | 'children' | 'seniors' | 'unrest' | 'infection' | Sector, number> {
   const groups = model.populationGroups[cellId];
   let population = 0;
   let adults = 0;
@@ -81,6 +86,8 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
   let approval = 0;
   let children = 0;
   let seniors = 0;
+  let mobilization = 0;
+  let infection = 0;
   const occupations: Record<Sector, number> = {
     agriculture: 0,
     manufacturing: 0,
@@ -92,6 +99,8 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
     population += group.count;
     wellbeing += group.count * group.wellbeing;
     approval += group.count * group.approval;
+    mobilization += group.count * group.mobilization;
+    infection += group.count * group.infection;
     if (group.lifeStage === 'child') children += group.count;
     if (group.lifeStage === 'senior') seniors += group.count;
     if (group.lifeStage !== 'adult') continue;
@@ -105,12 +114,15 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
 
   const cell = model.cells[cellId];
   const populationDivisor = Math.max(population, 1e-12);
+  const latentUnrest = mobilization / populationDivisor;
   const result = {
     employment: adults > 0 ? employedAdults / adults : 0,
     happiness: wellbeing / populationDivisor,
     approval: approval / populationDivisor,
     children: children / populationDivisor,
     seniors: seniors / populationDivisor,
+    unrest: latentUnrest * (model.policy.laws.publicAssembly ? 1 : 0.32),
+    infection: infection / populationDivisor,
     agriculture: cell.agriculture,
     manufacturing: cell.manufacturing,
     services: cell.services,
@@ -128,6 +140,8 @@ function projectedFields(model: DeepReadonly<Model>, cellId: number): Record<'em
  */
 // [I] PROJECTION-SOCIAL1
 // [I] PROJECTION-WORKFORCE1
+// [I] UNREST-MOBILIZATION1
+// [I] EPIDEMIC-SPREAD1
 export const populationAggregationRule: Rule = {
   id: 'population.aggregate',
   direction: 'people-to-mapxel',

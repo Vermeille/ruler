@@ -41,6 +41,12 @@ const CITY_CENTERS = [
   [0.57, 0.79],
 ] as const;
 
+const DEFAULT_POLICY_TAX_SIGNATURE = (DEFAULT_POLICY.incomeTax + DEFAULT_POLICY.businessTax) / 1.3;
+const DEFAULT_POLICY_SPENDING_SIGNATURE = Object.values(DEFAULT_POLICY.spending)
+  .reduce((sum, value) => sum + value, 0) / 14;
+const DEFAULT_POLICY_RIGHTS_SIGNATURE = Object.values(DEFAULT_POLICY.laws)
+  .filter(Boolean).length / 4;
+
 function validateWorldParameters(
   seed: string,
   width: number,
@@ -166,6 +172,19 @@ function createCell(
     employment: 0.91,
     foodSecurity: 1,
     sportsInterest: 0.25,
+    healthCapacity: population * 0.88,
+    educationCapacity: population * 0.24,
+    healthDisruption: 0,
+    educationDisruption: 0,
+    infrastructureDisruption: 0,
+    unrest: 0,
+    infection: 0.006,
+    policyAdjustment: 0,
+    policyTaxBaseline: DEFAULT_POLICY_TAX_SIGNATURE,
+    policySpendingBaseline: DEFAULT_POLICY_SPENDING_SIGNATURE,
+    policyWageBaseline: 0,
+    policyRightsBaseline: DEFAULT_POLICY_RIGHTS_SIGNATURE,
+    policySubsidyBaseline: 0,
     agriculture,
     manufacturing,
     services,
@@ -272,7 +291,7 @@ export function createGame(
   const initial = summarize(model);
 
   return {
-    version: 4,
+    version: 5,
     model,
     initial,
     history: [{ tick: 0, summary: initial }],

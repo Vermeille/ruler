@@ -8,6 +8,8 @@ export type PopulationStateFieldSpec = {
   min?: number;
   max?: number;
   mergeTolerance: MergeTolerance;
+  /** False for short-lived reaction state that should be averaged, not fragment cohort identity. */
+  mergeIdentity?: boolean;
 };
 
 export type PopulationTransitionFieldSpec = {
@@ -32,6 +34,13 @@ export const POPULATION_STATE_FIELDS = {
   health: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.03 },
   wellbeing: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.04 },
   approval: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.04 },
+  outlook: { storage: 'group', min: -1, max: 1, mergeTolerance: 0.08, mergeIdentity: false },
+  mobilization: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.08, mergeIdentity: false },
+  infection: { storage: 'group', min: 0, max: 1, mergeTolerance: 0.05, mergeIdentity: false },
+  salienceFood: { storage: 'group', min: 0.5, max: 2, mergeTolerance: 0.1, mergeIdentity: false },
+  salienceHealth: { storage: 'group', min: 0.5, max: 2, mergeTolerance: 0.1, mergeIdentity: false },
+  salienceSafety: { storage: 'group', min: 0.5, max: 2, mergeTolerance: 0.1, mergeIdentity: false },
+  salienceEducation: { storage: 'group', min: 0.5, max: 2, mergeTolerance: 0.1, mergeIdentity: false },
   environmentalism: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
   civicLiberty: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
   traditionalism: { storage: 'attitudes', min: 0, max: 1, mergeTolerance: 0.03 },
@@ -84,6 +93,10 @@ export function populationStateMergeTolerance(
 ): number {
   const tolerance: MergeTolerance = POPULATION_STATE_FIELDS[field].mergeTolerance;
   return typeof tolerance === 'number' ? tolerance : tolerance[group.lifeStage];
+}
+
+export function populationStateDefinesCohort(field: PopulationStateField): boolean {
+  return POPULATION_STATE_FIELDS[field].mergeIdentity !== false;
 }
 
 function bounded(value: number, spec: PopulationStateFieldSpec): number {

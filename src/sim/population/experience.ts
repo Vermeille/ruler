@@ -24,16 +24,20 @@ function livedWellbeing(
   const purchasingPower = clamp((group.income + Math.min(group.wealth, 30) * 0.08) / (6 * cell.price));
   const employment = group.lifeStage === 'adult' ? (group.employed ? 1 : 0.2) : 0.7;
   const needs = archetype.needs;
-  const weight = needs.food + needs.income + needs.employment + needs.health + needs.safety
-    + needs.housing + needs.education + needs.environment + needs.culture;
+  const foodWeight = needs.food * group.salienceFood;
+  const healthWeight = needs.health * group.salienceHealth;
+  const safetyWeight = needs.safety * group.salienceSafety;
+  const educationWeight = needs.education * group.salienceEducation;
+  const weight = foodWeight + needs.income + needs.employment + healthWeight + safetyWeight
+    + needs.housing + educationWeight + needs.environment + needs.culture;
   return (
-    needs.food * food
+    foodWeight * food
     + needs.income * purchasingPower
     + needs.employment * employment
-    + needs.health * group.health
-    + needs.safety * (1 - cell.crime)
+    + healthWeight * group.health
+    + safetyWeight * (1 - cell.crime)
     + needs.housing * cell.housing
-    + needs.education * cell.education
+    + educationWeight * cell.education
     + needs.environment * (1 - cell.pollution)
     + needs.culture * cell.culture
   ) / weight;
@@ -49,11 +53,13 @@ function livedWellbeing(
 // [I] EXPERIENCE-APPROVAL1
 // [I] EXPERIENCE-ENVIRONMENTALISM1
 // [I] EXPERIENCE-LIBERTY1
+// [I] EXPECTATIONS1
+// [I] PUBLIC-SALIENCE1
 export const populationExperienceRule: Rule = {
   id: 'population.experience',
   direction: 'mapxel-to-people',
   phase: 'experience',
-  description: 'Employment, purchasing power, health, services and local conditions change group income, wealth, wellbeing and approval.',
+  description: 'Employment, purchasing power, health, services, salient needs, and local conditions change group income, wealth, wellbeing, outlook, and approval.',
   run({ model, cache }) {
     const peopleCache = resolveStepCache(model, cache);
     const effects: Effect[] = [];
@@ -88,12 +94,25 @@ export const populationExperienceRule: Rule = {
           * (group.lifeStage === 'child' ? 0.02 : group.lifeStage === 'adult' ? 0.005 : 0);
         const wellbeingTarget = livedWellbeing(group, archetype, conditions);
         const wellbeingChange = (wellbeingTarget - group.wellbeing) * 0.1;
+
+        const trendSignal = clamp(
+          wellbeingChange * 8
+            + healthChange * 3
+            + incomeChange * 0.08
+            + wealthChange * 0.035,
+          -1,
+          1,
+        );
+        const outlookChange = (trendSignal - group.outlook) * 0.14;
+        const nextOutlook = clamp(group.outlook + outlookChange, -1, 1);
+
         const assemblyAgreement = model.policy.laws.publicAssembly
           ? group.attitudes.civicLiberty * 0.035
           : -group.attitudes.civicLiberty * 0.18;
         const approvalTarget = clamp(0.16
           + (group.wellbeing + wellbeingChange) * 0.55
           + wellbeingChange * 0.15
+          + nextOutlook * 0.08
           + model.budget.funding * 0.1
           + assemblyAgreement
           - model.policy.incomeTax * archetype.values.materialism * 0.2);
@@ -112,13 +131,14 @@ export const populationExperienceRule: Rule = {
             health: healthChange,
             education: educationChange,
             wellbeing: wellbeingChange,
+            outlook: outlookChange,
             approval: (approvalTarget - group.approval) * 0.08,
             environmentalism: (environmentalismTarget - group.attitudes.environmentalism) * 0.003,
             civicLiberty: (libertyTarget - group.attitudes.civicLiberty) * 0.002,
           },
           evidence: group.count > 5 && wellbeingChange < -0.03 && model.tick % 3 === 0 ? {
             title: `${cell.name}: group #${group.id} experiences hardship`,
-            detail: 'Employment, income, reserves, prices, and local services combine into a lower lived wellbeing target for this group.',
+            detail: 'Employment, income, reserves, prices, salient needs, and local services combine into a lower lived wellbeing target. The direction of recent change also moves this group’s outlook.',
             cells: [cell.id],
             reads: [
               { cell: cell.id, group: group.id, field: 'income', label: 'Group income' },
