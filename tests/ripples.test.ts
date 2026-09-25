@@ -6,6 +6,7 @@ import { enact } from '../src/sim/policy';
 import { randomAt, summarize } from '../src/sim/math';
 import { consumptionRule, defaultRules, eventRule, marketRule, tradeRule } from '../src/sim/rules';
 import type { Action, Game, Mapxel } from '../src/sim/types';
+import { crowns, personMonths } from '../src/sim/units';
 
 // Paired trajectories use the same seed and exclude discrete world events so policy is the only input difference.
 const rules = defaultRules.filter(r => r.id !== 'stories.events');
@@ -82,8 +83,8 @@ test('better roads carry more food through trade into consumption and local pric
   const low = createGame('trade-ripple', 12, 12, 3);
   const source = low.model.cells.find(c => c.biome !== 'water' && low.model.neighbors[c.id].length >= 2)!;
   const destination = low.model.cells[low.model.neighbors[source.id][0]];
-  for (const c of low.model.cells) if (c.biome !== 'water') { c.food = 0; c.infrastructure = 0; c.cash = c.population * 100; }
-  source.food = source.population * 5;
+  for (const c of low.model.cells) if (c.biome !== 'water') { c.food = personMonths(0); c.infrastructure = 0; c.cash = crowns(c.population * 100); }
+  source.food = personMonths(source.population * 5);
   const high = structuredClone(low);
   for (const c of high.model.cells) if (c.biome !== 'water') c.infrastructure = 1;
   const phases = [tradeRule, consumptionRule, marketRule];
@@ -115,7 +116,7 @@ test('a deterministic drought damages next-month food access and then raises pri
     .find(s => randomAt(s, 1, eventRule.id, -1, 'weather-roll') < .1);
   assert.ok(seed);
   const base = createGame(seed, 12, 12, 3);
-  for (const c of base.model.cells) if (c.biome !== 'water') c.food = c.population * 1.2;
+  for (const c of base.model.cells) if (c.biome !== 'water') c.food = personMonths(c.population * 1.2);
   const noEvent = step(base, []), drought = step(base, [eventRule]);
   const affected = drought.causes.find(c => c.rule === eventRule.id && c.title.startsWith('Dry weather'));
   assert.ok(affected && affected.cells.length);
