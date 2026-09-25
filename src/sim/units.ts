@@ -23,10 +23,7 @@ export type Index = Quantity<'index'>;
 export type Years = Quantity<'years'>;
 export type Months = Quantity<'months'>;
 
-/**
- * Unit expected when writing a mapxel field through the rule helper API.
- * Dimensionless indices/shares deliberately remain plain numbers.
- */
+/** Unit expected when writing a mapxel field through the rule helper API. */
 export type MapxelQuantity<Field extends string> =
   Field extends 'population' | 'starvationDeaths' ? People
     : Field extends 'cash' ? Crowns
@@ -35,6 +32,13 @@ export type MapxelQuantity<Field extends string> =
           : Field extends 'price' | 'scarcityPrice' ? FoodPrice
             : Field extends 'output' ? CrownsPerMonth
               : number;
+
+/** Unit expected for an authoritative population-state field. */
+export type PopulationQuantity<Field extends string> =
+  Field extends 'age' ? Years
+    : Field extends 'income' ? CrownsPerPersonMonth
+      : Field extends 'wealth' ? CrownsPerPerson
+        : number;
 
 function asQuantity<Unit extends string>(value: number, name: Unit): Quantity<Unit> {
   if (!Number.isFinite(value)) throw new Error(`Invalid ${name}: ${value}`);
