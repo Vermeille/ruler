@@ -1,30 +1,4 @@
 import type { DeepReadonly, Mapxel, Model, Summary } from './types';
-import type { SimulationUnit } from './map-fields';
-
-export type SummaryFieldSpec = {
-  unit: SimulationUnit;
-  description: string;
-};
-
-export const SUMMARY_FIELDS = {
-  population: { unit: 'count', description: 'Total residents in the selected area' },
-  wealth: { unit: 'crown/person', description: 'Private cash per resident in the selected area' },
-  approval: { unit: 'index', description: 'Population-weighted government approval' },
-  happiness: { unit: 'index', description: 'Population-weighted resident wellbeing projection' },
-  crime: { unit: 'index', description: 'Population-weighted crime pressure' },
-  foodSecurity: { unit: 'share', description: 'Population-weighted realized food consumption divided by need, capped at 1' },
-  employment: { unit: 'share', description: 'Population-weighted employment share' },
-  pollution: { unit: 'index', description: 'Population-weighted pollution' },
-  output: { unit: 'activity/month', description: 'Total abstract taxable economic activity per month' },
-  health: { unit: 'index', description: 'Population-weighted health' },
-  education: { unit: 'index', description: 'Population-weighted education' },
-  price: { unit: 'price-index', description: 'Population-weighted food price relative to reference price 1' },
-  treasury: { unit: 'crown', description: 'Government cash balance' },
-  debt: { unit: 'crown', description: 'Government debt balance' },
-  food: { unit: 'person-month', description: 'Total food stock; one unit feeds one resident for one month' },
-  starvationDeaths: { unit: 'count', description: 'Reported severe food-deprivation deaths this month' },
-} as const satisfies Record<keyof Summary, SummaryFieldSpec>;
-
 
 export function clamp(value: number, minimum = 0, maximum = 1): number {
   return Math.max(minimum, Math.min(maximum, value));
