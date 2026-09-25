@@ -2,6 +2,14 @@ import { clamp, randomAt, summarize } from './math';
 import { ARCHETYPE_MODEL_VERSION } from './population/archetypes';
 import { generatePopulation } from './population/generate';
 import type { Game, Mapxel, Model, Policy } from './types';
+import {
+  crowns,
+  crownsPerMonth,
+  foodPrice,
+  materialUnits,
+  people,
+  personMonths,
+} from './units';
 
 export const DEFAULT_POLICY: Policy = {
   incomeTax: 0.28,
@@ -148,12 +156,12 @@ function createCell(
     fertility,
     minerals: clamp(0.18 + elevation * 0.7),
     waterStress: 0,
-    population,
-    cash: population * (25 + urban * 20 + randomAt(seed, id, 'wealth') * 10),
-    food: population * (1.5 + agriculture),
-    materials: population * 0.6,
-    price: 1,
-    scarcityPrice: 1,
+    population: people(population),
+    cash: crowns(population * (25 + urban * 20 + randomAt(seed, id, 'wealth') * 10)),
+    food: personMonths(population * (1.5 + agriculture)),
+    materials: materialUnits(population * 0.6),
+    price: foodPrice(1),
+    scarcityPrice: foodPrice(1),
     children: 0.21,
     seniors: 0.16,
     education: 0.48 + urban * 0.15,
@@ -170,12 +178,12 @@ function createCell(
     manufacturing,
     services,
     sports,
-    output: population * 6,
-    foodMade: 0,
-    foodUsed: 0,
-    foodTraded: 0,
+    output: crownsPerMonth(population * 6),
+    foodMade: personMonths(0),
+    foodUsed: personMonths(0),
+    foodTraded: personMonths(0),
     businessHealth: 0.85,
-    starvationDeaths: 0,
+    starvationDeaths: people(0),
   };
 }
 
@@ -244,14 +252,14 @@ function createModel(
     regions: REGION_NAMES,
     policy: structuredClone(DEFAULT_POLICY),
     localSubsidies: [],
-    treasury: population * 6,
-    debt: 0,
-    externalCash: 1e12,
+    treasury: crowns(population * 6),
+    debt: crowns(0),
+    externalCash: crowns(1e12),
     budget: {
-      revenue: 0,
-      spending: 0,
-      interest: 0,
-      borrowed: 0,
+      revenue: crowns(0),
+      spending: crowns(0),
+      interest: crowns(0),
+      borrowed: crowns(0),
       funding: 1,
     },
   };
