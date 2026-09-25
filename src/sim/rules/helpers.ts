@@ -6,34 +6,38 @@ import type {
   Mapxel,
   MutableField,
 } from '../types';
+import type { MapxelQuantity } from '../units';
 
 export function isLand(cell: DeepReadonly<Mapxel>): boolean {
   return cell.biome !== 'water';
 }
 
-export function delta(
+export function delta<Field extends MutableField>(
   cell: DeepReadonly<Mapxel>,
-  field: MutableField,
-  amount: number,
+  field: Field,
+  amount: MapxelQuantity<Field>,
   evidence?: Evidence,
 ): Effect {
+  // The generic parameters enforce the field/quantity pairing. TypeScript cannot
+  // materialize that relationship as the mapped discriminated Effect union here.
   return {
     kind: 'delta',
     cell: cell.id,
     field,
     amount,
     evidence,
-  };
+  } as Effect;
 }
 
-export function changeToward(
+export function changeToward<Field extends MutableField>(
   cell: DeepReadonly<Mapxel>,
-  field: MutableField,
-  target: number,
+  field: Field,
+  target: MapxelQuantity<Field>,
   rate: number,
   evidence?: Evidence,
 ): Effect {
-  return delta(cell, field, approach(cell[field], target, rate), evidence);
+  const amount = approach(cell[field], target, rate) as MapxelQuantity<Field>;
+  return delta(cell, field, amount, evidence);
 }
 
 export function read(

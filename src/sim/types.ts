@@ -1,4 +1,15 @@
 import { MUTABLE_FIELDS } from './map-fields';
+import type {
+  Crowns,
+  CrownsPerMonth,
+  CrownsPerPerson,
+  FoodPrice,
+  MapxelQuantity,
+  MaterialPrice,
+  MaterialUnits,
+  People,
+  PersonMonths,
+} from './units';
 export { MUTABLE_FIELDS };
 
 export const SECTORS = [
@@ -67,6 +78,10 @@ export interface Archetype {
 
 export type LifeStage = 'child' | 'adult' | 'senior';
 
+/**
+ * Authoritative human state. Population-state write helpers use units.ts for
+ * dimensional fields; normalized education/health/wellbeing/approval remain [0,1].
+ */
 export interface PopulationGroup {
   id: PopulationGroupId;
   archetype: ArchetypeId;
@@ -129,6 +144,10 @@ type PrimitivePopulationTransitionField = {
 
 export type PopulationTransitionField = PrimitivePopulationTransitionField;
 
+/**
+ * Place state and compatibility projections. Dimensionful values are branded so
+ * fixtures and direct state edits must name their units explicitly.
+ */
 export interface Mapxel {
   id: number;
   x: number;
@@ -142,12 +161,18 @@ export interface Mapxel {
   minerals: number;
   waterStress: number;
 
-  population: number;
-  cash: number;
-  food: number;
-  materials: number;
-  price: number;
-  scarcityPrice: number;
+  /** Residents. */
+  population: People;
+  /** Pooled private money, in crowns. */
+  cash: Crowns;
+  /** Stored food, in person-months. */
+  food: PersonMonths;
+  /** Abstract material inventory units. */
+  materials: MaterialUnits;
+  /** Crowns per person-month of food. */
+  price: FoodPrice;
+  /** Scarcity-implied crowns per person-month of food. */
+  scarcityPrice: FoodPrice;
 
   children: number;
   seniors: number;
@@ -159,6 +184,7 @@ export interface Mapxel {
   pollution: number;
   infrastructure: number;
   employment: number;
+  /** Realized share of monthly food need consumed, capped at 1. */
   foodSecurity: number;
   sportsInterest: number;
 
@@ -167,12 +193,17 @@ export interface Mapxel {
   services: number;
   sports: number;
 
-  output: number;
-  foodMade: number;
-  foodUsed: number;
-  foodTraded: number;
+  /** Gross monetary production rate, in crowns/month. */
+  output: CrownsPerMonth;
+  /** Food produced during this month, in person-months. */
+  foodMade: PersonMonths;
+  /** Food consumed during this month, in person-months. */
+  foodUsed: PersonMonths;
+  /** Net food imported this month, in person-months. */
+  foodTraded: PersonMonths;
   businessHealth: number;
-  starvationDeaths: number;
+  /** Severe food-deprivation deaths reported for this month. */
+  starvationDeaths: People;
 }
 
 export type Field = {
@@ -182,6 +213,7 @@ export type Field = {
 type ImmutableNumericMapxelField = 'id' | 'x' | 'y' | 'region' | 'elevation' | 'fertility' | 'minerals';
 export type MutableField = Exclude<Field, ImmutableNumericMapxelField>;
 
+/** Tax rates are shares; minimumWage and service/subsidy rates are crowns/person/month. */
 export interface Policy {
   incomeTax: number;
   businessTax: number;
@@ -216,14 +248,16 @@ export interface LocalSubsidy {
   cause: string;
 }
 
+/** Monetary budget amounts are crowns for the current monthly step; funding is a [0,1] share. */
 export interface Budget {
-  revenue: number;
-  spending: number;
-  interest: number;
-  borrowed: number;
+  revenue: Crowns;
+  spending: Crowns;
+  interest: Crowns;
+  borrowed: Crowns;
   funding: number;
 }
 
+/** tick/mandate are months; public/external balances are crowns. */
 export interface Model {
   seed: string;
   archetypeModelVersion: number;
@@ -238,9 +272,9 @@ export interface Model {
   regions: string[];
   policy: Policy;
   localSubsidies: LocalSubsidy[];
-  treasury: number;
-  debt: number;
-  externalCash: number;
+  treasury: Crowns;
+  debt: Crowns;
+  externalCash: Crowns;
   budget: Budget;
 }
 
@@ -258,11 +292,16 @@ export type Metric =
   | 'education'
   | 'price';
 
+/** National/selected-area projection with dimensional totals preserved. */
 export interface Summary extends Record<Metric, number> {
-  treasury: number;
-  debt: number;
-  food: number;
-  starvationDeaths: number;
+  population: People;
+  wealth: CrownsPerPerson;
+  output: CrownsPerMonth;
+  price: FoodPrice;
+  treasury: Crowns;
+  debt: Crowns;
+  food: PersonMonths;
+  starvationDeaths: People;
 }
 
 export interface Observation {
@@ -315,11 +354,14 @@ export interface Game {
   ended: boolean;
 }
 
+type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown
   ? T
-  : T extends object
-    ? { readonly [P in keyof T]: DeepReadonly<T[P]> }
-    : T;
+  : T extends Primitive
+    ? T
+    : T extends object
+      ? { readonly [P in keyof T]: DeepReadonly<T[P]> }
+      : T;
 
 export type Account = number | 'treasury' | 'external';
 
@@ -334,40 +376,38 @@ export interface Evidence {
   parents?: string[];
 }
 
+type DeltaEffect = {
+  [F in MutableField]: {
+    kind: 'delta';
+    cell: number;
+    field: F;
+    amount: MapxelQuantity<F>;
+    evidence?: Evidence;
+    eventKey?: string;
+  }
+}[MutableField];
+
+type TransferEffect =
+  | { kind: 'transfer'; from: Account; to: Account; resource: 'cash'; amount: Crowns; evidence?: Evidence }
+  | { kind: 'transfer'; from: Account; to: Account; resource: 'food'; amount: PersonMonths; evidence?: Evidence }
+  | { kind: 'transfer'; from: Account; to: Account; resource: 'materials'; amount: MaterialUnits; evidence?: Evidence };
+
+type TradeEffect =
+  | { kind: 'trade'; from: number; to: number; resource: 'food'; amount: PersonMonths; price: FoodPrice; evidence?: Evidence }
+  | { kind: 'trade'; from: number; to: number; resource: 'materials'; amount: MaterialUnits; price: MaterialPrice; evidence?: Evidence };
+
 export type Effect =
-  | {
-      kind: 'delta';
-      cell: number;
-      field: MutableField;
-      amount: number;
-      evidence?: Evidence;
-      eventKey?: string;
-    }
-  | {
-      kind: 'transfer';
-      from: Account;
-      to: Account;
-      resource: 'cash' | 'food' | 'materials';
-      amount: number;
-      evidence?: Evidence;
-    }
+  | DeltaEffect
+  | TransferEffect
   | {
       kind: 'repayDebt';
-      amount: number;
+      amount: Crowns;
     }
-  | {
-      kind: 'trade';
-      from: number;
-      to: number;
-      resource: 'food' | 'materials';
-      amount: number;
-      price: number;
-      evidence?: Evidence;
-    }
+  | TradeEffect
   | {
       kind: 'budget';
       value: Budget;
-      debtDelta: number;
+      debtDelta: Crowns;
     }
   | {
       kind: 'event';

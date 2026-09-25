@@ -1,11 +1,12 @@
 import { SECTORS, type DeepReadonly, type Model, type StepCache } from './types';
 import { subsidyFor } from './policy';
+import { crowns, type Crowns } from './units';
 
 export type StepBudgetForecast = {
-  revenue: number;
-  spending: number;
-  interest: number;
-  balance: number;
+  revenue: Crowns;
+  spending: Crowns;
+  interest: Crowns;
+  balance: Crowns;
 };
 
 /**
@@ -41,14 +42,14 @@ export function forecastBudgetForStep(
 
   const interest = model.debt * 0.003;
   return {
-    revenue,
-    spending,
-    interest,
-    balance: revenue - spending - interest,
+    revenue: crowns(revenue),
+    spending: crowns(spending),
+    interest: crowns(interest),
+    balance: crowns(revenue - spending - interest),
   };
 }
 
 // [I] FISCAL-BORROW1
-export function debtLimitForStep(cache: DeepReadonly<StepCache>): number {
-  return cache.peopleByCell.reduce((sum, people) => sum + people.population, 0) * 30;
+export function debtLimitForStep(cache: DeepReadonly<StepCache>): Crowns {
+  return crowns(cache.peopleByCell.reduce((sum, people) => sum + people.population, 0) * 30);
 }

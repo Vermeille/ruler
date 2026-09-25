@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { step } from '../src/sim/engine';
 import { buildStepCache } from '../src/sim/step-cache';
 import type { DeepReadonly, Rule, StepCache } from '../src/sim/types';
+import { people } from '../src/sim/units';
 import { createGame } from '../src/sim/world';
 
 const HUMAN_COMPATIBILITY_FIELDS = [
@@ -38,7 +39,7 @@ test('step cache is derived from population groups rather than mapxel social pro
   }
 
   // Deliberately make legacy mapxel projections nonsense. The cache must ignore them.
-  cell.population = population;
+  cell.population = people(population);
   cell.employment = adults > 0 && employed / adults > 0.5 ? 0 : 1;
   cell.happiness = 0;
   cell.approval = 1;

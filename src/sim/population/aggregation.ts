@@ -8,14 +8,15 @@ import {
   type Rule,
   type Sector,
 } from '../types';
+import { delta } from '../rules/helpers';
 
 type ProjectionParentKind = 'occupation' | 'employed' | 'wellbeing' | 'approval' | 'lifeStage';
 type ProjectionParentCache = Partial<Record<ProjectionParentKind, string[]>>;
 
-const PROJECTED_FIELDS: readonly MutableField[] = [
+const PROJECTED_FIELDS = [
   'employment', 'happiness', 'approval', 'children', 'seniors',
   'agriculture', 'manufacturing', 'services', 'sports',
-];
+] as const satisfies readonly MutableField[];
 
 function parentKind(field: MutableField): ProjectionParentKind | undefined {
   if (SECTORS.includes(field as Sector)) return 'occupation';
@@ -140,14 +141,13 @@ export const populationAggregationRule: Rule = {
       const target = projectedFields(model, cell.id);
       const parents: ProjectionParentCache = {};
       for (const field of PROJECTED_FIELDS) {
-        const value = target[field as keyof typeof target];
-        effects.push({
-          kind: 'delta',
-          cell: cell.id,
+        const value = target[field];
+        effects.push(delta(
+          cell,
           field,
-          amount: value - cell[field],
-          evidence: projectionEvidence(model, cell.id, field, cell[field], value, parents),
-        });
+          value - cell[field],
+          projectionEvidence(model, cell.id, field, cell[field], value, parents),
+        ));
       }
     }
     return effects;

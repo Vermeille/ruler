@@ -1,4 +1,5 @@
 import type { MutableField } from './types';
+import type { MapxelQuantity } from './units';
 
 export type MapxelResource = 'food' | 'materials';
 
@@ -58,12 +59,15 @@ export function isMutableMapxelField(field: string): field is MutableField {
   return mapxelFieldSpec(field) !== undefined;
 }
 
-export function constrainMapxelFieldValue(field: MutableField, value: number): number {
+export function constrainMapxelFieldValue<Field extends MutableField>(
+  field: Field,
+  value: number,
+): MapxelQuantity<Field> {
   const spec: MapxelFieldSpec = MAPXEL_FIELDS[field];
   let result = value;
   if (spec.min !== undefined) result = Math.max(spec.min, result);
   if (spec.max !== undefined) result = Math.min(spec.max, result);
-  return result;
+  return result as MapxelQuantity<Field>;
 }
 
 export function validMapxelFieldValue(

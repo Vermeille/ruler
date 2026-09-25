@@ -1,13 +1,19 @@
 import { clamp } from '../math';
 import type { DeepReadonly, Mapxel, Model, Sector } from '../types';
+import { crownsPerPersonMonth, type CrownsPerPersonMonth } from '../units';
 
 // [I] ECONOMY-SECTOR-RETURNS1
-export function unitOutput(cell: DeepReadonly<Mapxel>, model: DeepReadonly<Model>, sector: Sector): number {
+/** Gross monetary output produced by one employed resident over one month. */
+export function unitOutput(
+  cell: DeepReadonly<Mapxel>,
+  model: DeepReadonly<Model>,
+  sector: Sector,
+): CrownsPerPersonMonth {
   switch (sector) {
-    case 'agriculture': return 6 * cell.price;
-    case 'manufacturing': return 10 * (model.policy.laws.cleanAir ? 0.93 : 1);
-    case 'services': return 9 * cell.businessHealth;
-    case 'sports': return 4 + cell.sportsInterest * 7;
+    case 'agriculture': return crownsPerPersonMonth(6 * cell.price);
+    case 'manufacturing': return crownsPerPersonMonth(10 * (model.policy.laws.cleanAir ? 0.93 : 1));
+    case 'services': return crownsPerPersonMonth(9 * cell.businessHealth);
+    case 'sports': return crownsPerPersonMonth(4 + cell.sportsInterest * 7);
   }
 }
 

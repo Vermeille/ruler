@@ -7,6 +7,7 @@ import { summarize } from '../src/sim/math';
 import { defaultRules } from '../src/sim/rules';
 import { mandateReport, traceCauses } from '../src/sim/narrative';
 import type { Action, Game, Sector } from '../src/sim/types';
+import { crowns } from '../src/sim/units';
 
 const run = (g: Game, months: number, events = true): Game => {
   const rules = events ? defaultRules : defaultRules.filter(rule => rule.id !== 'stories.events');
@@ -143,8 +144,8 @@ test('higher inequality across a border raises poor-cell crime when policing is 
     const extraPerResident = 100;
     for (const group of unequal.model.populationGroups[id]) group.wealth += extraPerResident;
     const extraCash = c.population * extraPerResident;
-    c.cash += extraCash;
-    unequal.model.externalCash -= extraCash;
+    c.cash = crowns(c.cash + extraCash);
+    unequal.model.externalCash = crowns(unequal.model.externalCash - extraCash);
   }
   const baseline = run(base, 6, false), changed = run(unequal, 6, false);
   assert.ok(changed.model.cells[a.id].crime > baseline.model.cells[a.id].crime + .025);

@@ -1,5 +1,14 @@
 import { constrainMapxelFieldValue, mapxelFieldSpec } from '../map-fields';
 import type { Account, DeepReadonly, Effect, Game, Model, MutableField } from '../types';
+import {
+  crowns,
+  foodPrice,
+  foodTradeCost,
+  materialPrice,
+  materialTradeCost,
+  materialUnits,
+  personMonths,
+} from '../units';
 
 export type Resource = 'cash' | 'food' | 'materials';
 
@@ -33,14 +42,26 @@ function moveResource(
   amount: number,
 ): void {
   if (account === 'external') {
-    model.externalCash += amount;
+    model.externalCash = crowns(model.externalCash + amount);
     return;
   }
   if (account === 'treasury') {
-    model.treasury += amount;
+    model.treasury = crowns(model.treasury + amount);
     return;
   }
-  model.cells[account][resource] += amount;
+
+  const cell = model.cells[account];
+  switch (resource) {
+    case 'cash':
+      cell.cash = crowns(cell.cash + amount);
+      break;
+    case 'food':
+      cell.food = personMonths(cell.food + amount);
+      break;
+    case 'materials':
+      cell.materials = materialUnits(cell.materials + amount);
+      break;
+  }
 }
 
 function demandKey(account: Account, resource: Resource): string {
@@ -57,6 +78,15 @@ function addDemand(
   accountBalance(snapshot, account, resource);
   const key = demandKey(account, resource);
   demands.set(key, (demands.get(key) ?? 0) + amount);
+}
+
+function tradeCashAmount(
+  effect: Extract<Effect, { kind: 'trade' }>,
+  amount: number,
+): number {
+  return effect.resource === 'food'
+    ? foodTradeCost(personMonths(amount), foodPrice(effect.price))
+    : materialTradeCost(materialUnits(amount), materialPrice(effect.price));
 }
 
 function validateEffectAmount(effect: Effect): void {
@@ -118,7 +148,7 @@ export function planResourceSettlement(
           throw new Error('Invalid trade price.');
         }
         addDemand(demands, snapshot, effect.from, effect.resource, effect.amount);
-        addDemand(demands, snapshot, effect.to, 'cash', effect.amount * effect.price);
+        addDemand(demands, snapshot, effect.to, 'cash', tradeCashAmount(effect, effect.amount));
         break;
       case 'budget':
         budgetEffectCount += 1;
@@ -155,7 +185,7 @@ export function settleResourceEffect(
 ): number {
   switch (effect.kind) {
     case 'delta': {
-      let actual = effect.amount;
+      let actual: number = effect.amount;
       const resource = mapxelFieldSpec(effect.field)?.resource;
       if (actual < 0 && resource) {
         actual *= demandScale(snapshot, plan, effect.cell, resource);
@@ -174,26 +204,31 @@ export function settleResourceEffect(
       const actual = effect.amount * demandScale(snapshot, plan, 'treasury', 'cash');
       moveResource(game.model, 'treasury', 'cash', -actual);
       moveResource(game.model, 'external', 'cash', actual);
-      game.model.debt -= actual;
+      game.model.debt = crowns(game.model.debt - actual);
       return actual;
     }
     case 'trade': {
       const sellerScale = demandScale(snapshot, plan, effect.from, effect.resource);
       const buyerScale = demandScale(snapshot, plan, effect.to, 'cash');
       const actual = effect.amount * Math.min(sellerScale, buyerScale);
+      const cash = tradeCashAmount(effect, actual);
       moveResource(game.model, effect.from, effect.resource, -actual);
       moveResource(game.model, effect.to, effect.resource, actual);
-      moveResource(game.model, effect.to, 'cash', -actual * effect.price);
-      moveResource(game.model, effect.from, 'cash', actual * effect.price);
+      moveResource(game.model, effect.to, 'cash', -cash);
+      moveResource(game.model, effect.from, 'cash', cash);
       if (effect.resource === 'food') {
-        game.model.cells[effect.from].foodTraded -= actual;
-        game.model.cells[effect.to].foodTraded += actual;
+        game.model.cells[effect.from].foodTraded = personMonths(
+          game.model.cells[effect.from].foodTraded - actual,
+        );
+        game.model.cells[effect.to].foodTraded = personMonths(
+          game.model.cells[effect.to].foodTraded + actual,
+        );
       }
       return actual;
     }
     case 'budget':
       game.model.budget = { ...effect.value };
-      game.model.debt += effect.debtDelta;
+      game.model.debt = crowns(game.model.debt + effect.debtDelta);
       return 0;
     case 'event':
     case 'population-transfer':
@@ -208,6 +243,11 @@ export function applyAccumulatedDeltas(game: Game, deltas: Map<string, number>):
   for (const [key, amount] of deltas) {
     const [cellId, field] = key.split(':') as [string, MutableField];
     const cell = game.model.cells[Number(cellId)];
-    cell[field] = constrainMapxelFieldValue(field, cell[field] + amount);
+    // Dynamic settlement is the single runtime escape hatch: field/effect compatibility
+    // is checked before settlement, and the registry reapplies bounds here.
+    (cell as unknown as Record<MutableField, number>)[field] = constrainMapxelFieldValue(
+      field,
+      cell[field] + amount,
+    );
   }
 }
