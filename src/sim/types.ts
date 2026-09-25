@@ -67,6 +67,17 @@ export interface Archetype {
 
 export type LifeStage = 'child' | 'adult' | 'senior';
 
+/**
+ * Authoritative human state.
+ * - count: people
+ * - age: years
+ * - income: crowns/person/month
+ * - wealth: crowns/person
+ * - education, health, wellbeing, approval and attitudes: normalized [0,1]
+ *
+ * Use the constructors in units.ts when writing literal dimensional values in
+ * rules, fixtures, or tests. They are zero-overhead branded numbers.
+ */
 export interface PopulationGroup {
   id: PopulationGroupId;
   archetype: ArchetypeId;
@@ -92,6 +103,7 @@ export interface PopulationGroup {
 /**
  * Read-only population aggregates derived once from authoritative groups at the
  * beginning of a simulation step. They are an execution cache, never model state.
+ * Counts are people; average income is crowns/person/month; average wealth is crowns/person.
  */
 export interface StepPeopleSummary {
   readonly population: number;
@@ -129,6 +141,26 @@ type PrimitivePopulationTransitionField = {
 
 export type PopulationTransitionField = PrimitivePopulationTransitionField;
 
+/**
+ * Place state and compatibility projections.
+ *
+ * Dimensional fields:
+ * - population: people
+ * - cash: crowns
+ * - food, foodMade, foodUsed, foodTraded: person-months of food
+ * - materials: abstract material units
+ * - price, scarcityPrice: crowns per person-month of food (reference price = 1)
+ * - output: crowns/month
+ * - starvationDeaths: people/month (reported severe component for the current step)
+ *
+ * children/seniors/employment and sector fields are shares in [0,1]. Health,
+ * happiness, approval, crime, pollution, infrastructure, businessHealth and the
+ * terrain/service qualities are normalized [0,1] indices. foodSecurity is the
+ * realized share of monthly food need actually consumed, capped at 1.
+ *
+ * Use units.ts constructors for literals and dimensional helper functions for
+ * conversions. MAPXEL_FIELDS only describes mutation/bounds mechanics.
+ */
 export interface Mapxel {
   id: number;
   x: number;
@@ -182,6 +214,7 @@ export type Field = {
 type ImmutableNumericMapxelField = 'id' | 'x' | 'y' | 'region' | 'elevation' | 'fertility' | 'minerals';
 export type MutableField = Exclude<Field, ImmutableNumericMapxelField>;
 
+/** Tax rates are shares; minimumWage and service/subsidy rates are crowns/person/month. */
 export interface Policy {
   incomeTax: number;
   businessTax: number;
@@ -216,6 +249,7 @@ export interface LocalSubsidy {
   cause: string;
 }
 
+/** Monetary budget amounts are crowns for the current monthly step; funding is a [0,1] share. */
 export interface Budget {
   revenue: number;
   spending: number;
@@ -224,6 +258,7 @@ export interface Budget {
   funding: number;
 }
 
+/** tick/mandate are months; treasury/debt/externalCash are crowns. */
 export interface Model {
   seed: string;
   archetypeModelVersion: number;
@@ -258,6 +293,12 @@ export type Metric =
   | 'education'
   | 'price';
 
+/**
+ * National/selected-area projection.
+ * population and starvationDeaths are people; wealth is crowns/person; output is
+ * crowns/month; treasury/debt are crowns; food is person-months; price is
+ * crowns/person-month of food. Remaining metrics are normalized indices/shares.
+ */
 export interface Summary extends Record<Metric, number> {
   treasury: number;
   debt: number;
