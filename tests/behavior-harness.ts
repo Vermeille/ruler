@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { step, assertModel } from '../src/sim/engine';
 import { summarize } from '../src/sim/math';
 import { defaultRules } from '../src/sim/rules';
-import type { Game, Summary } from '../src/sim/types';
+import type { Game, MutableField, Summary } from '../src/sim/types';
 
 export const BEHAVIOR_MONTHS = 12;
 export const behaviorRules = defaultRules.filter(rule => rule.id !== 'stories.events');
@@ -12,6 +12,21 @@ export type BehaviorFrame = Readonly<{
   month: number;
   summary: Summary;
   causes: readonly string[];
+  map: readonly BehaviorMapCell[];
+}>;
+export type BehaviorMapCell = Readonly<{
+  id: number;
+  x: number;
+  y: number;
+  biome: string;
+  population: number;
+  foodSecurity: number;
+  price: number;
+  pollution: number;
+  health: number;
+  happiness: number;
+  infrastructure: number;
+  output: number;
 }>;
 export type MetricResponse = Readonly<{
   metric: BehaviorMetric;
@@ -47,6 +62,12 @@ function trajectory(initial: Game): BehaviorFrame[] {
       month,
       summary: summarize(game.model),
       causes: game.causes.map(cause => cause.rule),
+      map: game.model.cells.map(cell => ({
+        id: cell.id, x: cell.x, y: cell.y, biome: cell.biome,
+        population: cell.population, foodSecurity: cell.foodSecurity, price: cell.price,
+        pollution: cell.pollution, health: cell.health, happiness: cell.happiness,
+        infrastructure: cell.infrastructure, output: cell.output,
+      })),
     });
   }
   return frames;
