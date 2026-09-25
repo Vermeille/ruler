@@ -8,6 +8,7 @@ import { defaultRules, migrationRule, productionRule, tradeRule } from '../src/s
 import { deserialize, serialize } from '../src/sim/save';
 import { mandateReport } from '../src/sim/narrative';
 import type { Action, Effect, Game, Rule } from '../src/sim/types';
+import { crowns, foodPrice, people, personMonths, type PersonMonths } from '../src/sim/units';
 
 const tiny = (seed = 'testing', mandate = 48) => createGame(seed, 18, 14, mandate);
 const run = (g: Game, months: number, rules = defaultRules): Game => { for (let i = 0; i < months; i++) g = step(g, rules); return g; };
@@ -39,44 +40,44 @@ test('a broken extension cannot mutate or partially advance the input game', () 
   const g = tiny(), original = serialize(g);
   const malicious: Rule = { id: 'mutation', direction: 'mapxel-to-mapxel', phase: 'production', description: '', run: ({ model }) => { (model.cells[0] as unknown as { cash: number }).cash = 100; return []; } };
   assert.throws(() => step(g, [malicious]), TypeError); assert.equal(serialize(g), original);
-  const bad: Rule = { id: 'bad', direction: 'mapxel-to-mapxel', phase: 'events', description: '', run: () => [{ kind: 'delta', cell: g.model.cells.find(c => c.population > 0)!.id, field: 'food', amount: NaN }] };
+  const bad: Rule = { id: 'bad', direction: 'mapxel-to-mapxel', phase: 'events', description: '', run: () => [{ kind: 'delta', cell: g.model.cells.find(c => c.population > 0)!.id, field: 'food', amount: NaN as PersonMonths }] };
   assert.throws(() => step(g, [...defaultRules, bad]), /Invalid effect/); assert.equal(serialize(g), original);
 });
 test('simultaneous transfers cannot overspend inventory or double-spend incoming stock', () => {
   const g = tiny(), [a, b, c] = g.model.cells.filter(c => c.population > 0);
-  a.food = 10; b.food = 0; c.food = 0;
+  a.food = personMonths(10); b.food = personMonths(0); c.food = personMonths(0);
   const original = total(g, 'food'), effects: Effect[] = [
-    { kind: 'transfer', from: a.id, to: b.id, resource: 'food', amount: 10 },
-    { kind: 'transfer', from: a.id, to: c.id, resource: 'food', amount: 10 },
-    { kind: 'transfer', from: b.id, to: c.id, resource: 'food', amount: 10 },
+    { kind: 'transfer', from: a.id, to: b.id, resource: 'food', amount: personMonths(10) },
+    { kind: 'transfer', from: a.id, to: c.id, resource: 'food', amount: personMonths(10) },
+    { kind: 'transfer', from: b.id, to: c.id, resource: 'food', amount: personMonths(10) },
   ];
   commitEffects(g, deepFreeze(structuredClone(g.model)), effects.map(effect => ({ rule: 'test', effect })));
   close(a.food, 0); close(b.food, 5); close(c.food, 5); close(total(g, 'food'), original);
 });
 test('competing trades settle goods and payment atomically, respecting a poor buyer', () => {
   const g = tiny(), [a, b, c] = g.model.cells.filter(c => c.population > 0);
-  a.food = 10; b.food = 0; c.food = 0; b.cash = 4; c.cash = 100;
+  a.food = personMonths(10); b.food = personMonths(0); c.food = personMonths(0); b.cash = crowns(4); c.cash = crowns(100);
   const beforeFood = total(g, 'food'), beforeCash = cash(g), aCash = a.cash;
-  const effects: Effect[] = [{ kind: 'trade', from: a.id, to: b.id, resource: 'food', amount: 10, price: 2 }, { kind: 'trade', from: a.id, to: c.id, resource: 'food', amount: 10, price: 2 }];
+  const effects: Effect[] = [{ kind: 'trade', from: a.id, to: b.id, resource: 'food', amount: personMonths(10), price: foodPrice(2) }, { kind: 'trade', from: a.id, to: c.id, resource: 'food', amount: personMonths(10), price: foodPrice(2) }];
   commitEffects(g, deepFreeze(structuredClone(g.model)), effects.map(effect => ({ rule: 'trade', effect })));
   close(b.food, 2); close(b.cash, 0); close(c.food, 5); close(a.food, 3); close(a.cash - aCash, 14); close(total(g, 'food'), beforeFood); close(cash(g), beforeCash, .001);
 });
 test('consumption and outgoing transfers share the same stock budget', () => {
-  const g = tiny(), [a, b] = g.model.cells.filter(c => c.population > 0); a.food = 10; b.food = 0;
+  const g = tiny(), [a, b] = g.model.cells.filter(c => c.population > 0); a.food = personMonths(10); b.food = personMonths(0);
   commitEffects(g, deepFreeze(structuredClone(g.model)), [
-    { rule: 'eat', effect: { kind: 'delta', cell: a.id, field: 'food', amount: -10 } },
-    { rule: 'trade', effect: { kind: 'transfer', from: a.id, to: b.id, resource: 'food', amount: 10 } },
+    { rule: 'eat', effect: { kind: 'delta', cell: a.id, field: 'food', amount: personMonths(-10) } },
+    { rule: 'trade', effect: { kind: 'transfer', from: a.id, to: b.id, resource: 'food', amount: personMonths(10) } },
   ]);
   close(a.food, 0); close(b.food, 5);
 });
 test('debt repayment moves only available cash and cannot erase more principal than owed', () => {
-  const g = tiny(); g.model.debt = 10; g.model.treasury = 5;
+  const g = tiny(); g.model.debt = crowns(10); g.model.treasury = crowns(5);
   const beforeCash = cash(g), beforeExternal = g.model.externalCash;
-  commitEffects(g, deepFreeze(structuredClone(g.model)), [{ rule: 'repay', effect: { kind: 'repayDebt', amount: 10 } }]);
+  commitEffects(g, deepFreeze(structuredClone(g.model)), [{ rule: 'repay', effect: { kind: 'repayDebt', amount: crowns(10) } }]);
   close(g.model.treasury, 0); close(g.model.debt, 5); close(g.model.externalCash - beforeExternal, 5);
   close(cash(g), beforeCash, .001);
   assert.throws(() => commitEffects(g, deepFreeze(structuredClone(g.model)),
-    [{ rule: 'repay', effect: { kind: 'repayDebt', amount: 6 } }]), /exceeds outstanding/);
+    [{ rule: 'repay', effect: { kind: 'repayDebt', amount: crowns(6) } }]), /exceeds outstanding/);
 });
 test('neighbor trade and migration conserve resources and national population', () => {
   const start = tiny(), traded = run(start, 1, [tradeRule]), moved = run(start, 1, [migrationRule]);
@@ -90,7 +91,7 @@ test('production has explicit resource sources and exports use an external accou
   assert.ok(next.model.externalCash < start.model.externalCash);
 });
 test('summaries are weighted by residents, including selected regions', () => {
-  const g = tiny(), [a, b] = g.model.cells.filter(c => c.population > 0); a.population = 100; b.population = 900; a.happiness = 0; b.happiness = 1;
+  const g = tiny(), [a, b] = g.model.cells.filter(c => c.population > 0); a.population = people(100); b.population = people(900); a.happiness = 0; b.happiness = 1;
   close(summarize(g.model, [a.id, b.id]).happiness, .9);
   assert.equal(summarize(g.model, []).population, 0);
 });
@@ -117,7 +118,7 @@ test('invalid, non-finite, unknown, duplicate-scope, and unaffordable actions ar
 });
 test('a cash-free policy change remains available with tiny floating-point treasury debt', () => {
   const g = tiny();
-  g.model.treasury = -1e-12;
+  g.model.treasury = crowns(-1e-12);
   assertModel(g.model);
   const next = enact(g, { type: 'spending', service: 'health', amount: .1 });
   assert.equal(next.model.policy.spending.health, .1);
@@ -158,10 +159,10 @@ test('save validation rejects invalid shapes, indices, policy, histories, refere
     (g: Game) => { g.model.cells[0].id = 100000; }, (g: Game) => { g.model.cells[40].health = NaN; },
     (g: Game) => { g.model.neighbors = []; }, (g: Game) => { g.model.policy.spending.health = 9; },
     (g: Game) => { g.model.policy.minimumWage = 11; },
-    (g: Game) => { g.model.cells.find(c => c.population > 0)!.price = 100; },
-    (g: Game) => { g.model.cells.find(c => c.population > 0)!.scarcityPrice = 100; },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.price = foodPrice(100); },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.scarcityPrice = foodPrice(100); },
     (g: Game) => { g.model.cells.find(c => c.population > 0)!.waterStress = 2; },
-    (g: Game) => { g.model.cells.find(c => c.population > 0)!.starvationDeaths = -1; },
+    (g: Game) => { g.model.cells.find(c => c.population > 0)!.starvationDeaths = people(-1); },
     (g: Game) => { g.history.pop(); }, (g: Game) => { g.articles[0].causeIds = ['missing']; },
     (g: Game) => { g.causes[0].parents = [g.causes[0].id]; }, (g: Game) => { g.model.width = 10000; },
   ]) { const g = structuredClone(base); corrupt(g); assert.throws(() => deserialize(serialize(g))); }
@@ -195,8 +196,8 @@ test('version-two saves migrate with an unregulated wage floor', () => {
 test('enacting food price controls caps posted local prices and survives a save', () => {
   const start = tiny('price-cap-save');
   const cell = start.model.cells.find(c => c.biome !== 'water')!;
-  cell.price = 2.5;
-  cell.scarcityPrice = 2.5;
+  cell.price = foodPrice(2.5);
+  cell.scarcityPrice = foodPrice(2.5);
   const controlled = enact(start, { type: 'law', law: 'foodPriceControls', enabled: true });
   assert.equal(controlled.model.cells[cell.id].price, 1);
   assert.equal(controlled.model.cells[cell.id].scarcityPrice, 2.5);
