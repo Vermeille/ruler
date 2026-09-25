@@ -77,9 +77,9 @@ export const productionRule: Rule = {
       return [
         delta(cell, 'food', food, foodEvidence),
         delta(cell, 'materials', materials),
-        delta(cell, 'output', output - cell.output),
-        delta(cell, 'foodMade', food - cell.foodMade),
-        delta(cell, 'foodTraded', -cell.foodTraded),
+        delta(cell, 'output', crownsPerMonth(output - cell.output)),
+        delta(cell, 'foodMade', personMonths(food - cell.foodMade)),
+        delta(cell, 'foodTraded', personMonths(-cell.foodTraded)),
         {
           kind: 'transfer',
           from: 'external',
@@ -209,9 +209,9 @@ export const consumptionRule: Rule = {
         + oneMonthOf(crownsPerMonth(cell.output)) * 0.09;
 
       return [
-        delta(cell, 'food', -eaten - remainingFood * 0.16),
-        delta(cell, 'foodUsed', eaten - cell.foodUsed),
-        delta(cell, 'materials', -materialUse),
+        delta(cell, 'food', personMonths(-eaten - remainingFood * 0.16)),
+        delta(cell, 'foodUsed', personMonths(eaten - cell.foodUsed)),
+        delta(cell, 'materials', materialUnits(-materialUse)),
         delta(cell, 'foodSecurity', security - cell.foodSecurity, foodEvidence),
         {
           kind: 'transfer',
@@ -287,7 +287,13 @@ export const marketRule: Rule = {
         : undefined;
 
       return [
-        delta(cell, 'price', clamp(cell.price + (targetPrice - cell.price) * 0.14, 0.4, model.policy.laws.foodPriceControls ? 1 : 5) - cell.price, priceEvidence),
+        delta(cell, 'price', foodPrice(
+          clamp(
+            cell.price + (targetPrice - cell.price) * 0.14,
+            0.4,
+            model.policy.laws.foodPriceControls ? 1 : 5,
+          ) - cell.price,
+        ), priceEvidence),
         changeToward(cell, 'scarcityPrice', targetPrice, 0.14),
         changeToward(cell, 'businessHealth', businessTarget, 0.15, businessEvidence),
       ];
