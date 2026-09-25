@@ -13,6 +13,7 @@ import { deserialize, serialize } from '../src/sim/save';
 import { enact } from '../src/sim/policy';
 import { defaultRules, migrationRule } from '../src/sim/rules';
 import type { Effect, Game, PopulationGroup } from '../src/sim/types';
+import { people } from '../src/sim/units';
 import { createGame } from '../src/sim/world';
 
 const game = () => createGame('population-tests', 12, 12);
@@ -109,7 +110,7 @@ test('mortality removes actual groups and yearly births create inherited childre
   const cell = land(g)[0];
   g.model.tick = 12;
   cell.foodSecurity = 0.1;
-  cell.starvationDeaths = cell.population * 0.008 * ((0.7 - cell.foodSecurity) / 0.7) ** 2;
+  cell.starvationDeaths = people(cell.population * 0.008 * ((0.7 - cell.foodSecurity) / 0.7) ** 2);
   const before = total(g);
   const snapshot = deepFreeze(structuredClone(g.model));
   const effects = populationDemographicsRule.run({ model: snapshot, random: () => 0,
