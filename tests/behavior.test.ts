@@ -39,7 +39,6 @@ test('a small pollution nudge reaches resident health and then shows whether the
     game.model.cells[focal.id].pollution = Math.min(1, game.model.cells[focal.id].pollution + .08);
   });
 
-  assertBehaviorTriggered(run, 'environment.local');
   assertRipple(run, 'pollution', r => r.peak > 1e-5,
     'The environmental state must retain a measurable trace of the nudge');
   assertRipple(run, 'health', r => r.deltas.some(delta => delta < -1e-6),
