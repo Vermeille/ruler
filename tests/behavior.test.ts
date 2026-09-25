@@ -40,7 +40,7 @@ test('food scarcity propagates when local farming capacity cannot replenish rese
     const cell = game.model.cells[focal.id];
     cell.food *= .55;
     for (const group of game.model.populationGroups[focal.id]) {
-      group.occupation.agriculture = 0;
+      if (group.occupation === 'agriculture') group.occupation = 'services';
     }
   });
 
