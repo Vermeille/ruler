@@ -1,5 +1,13 @@
 import { constrainMapxelFieldValue, mapxelFieldSpec } from '../map-fields';
 import type { Account, DeepReadonly, Effect, Game, Model, MutableField } from '../types';
+import {
+  foodPrice,
+  foodTradeCost,
+  materialPrice,
+  materialTradeCost,
+  materialUnits,
+  personMonths,
+} from '../units';
 
 export type Resource = 'cash' | 'food' | 'materials';
 
@@ -57,6 +65,15 @@ function addDemand(
   accountBalance(snapshot, account, resource);
   const key = demandKey(account, resource);
   demands.set(key, (demands.get(key) ?? 0) + amount);
+}
+
+function tradeCashAmount(
+  effect: Extract<Effect, { kind: 'trade' }>,
+  amount: number,
+): number {
+  return effect.resource === 'food'
+    ? foodTradeCost(personMonths(amount), foodPrice(effect.price))
+    : materialTradeCost(materialUnits(amount), materialPrice(effect.price));
 }
 
 function validateEffectAmount(effect: Effect): void {
@@ -118,7 +135,7 @@ export function planResourceSettlement(
           throw new Error('Invalid trade price.');
         }
         addDemand(demands, snapshot, effect.from, effect.resource, effect.amount);
-        addDemand(demands, snapshot, effect.to, 'cash', effect.amount * effect.price);
+        addDemand(demands, snapshot, effect.to, 'cash', tradeCashAmount(effect, effect.amount));
         break;
       case 'budget':
         budgetEffectCount += 1;
@@ -181,10 +198,11 @@ export function settleResourceEffect(
       const sellerScale = demandScale(snapshot, plan, effect.from, effect.resource);
       const buyerScale = demandScale(snapshot, plan, effect.to, 'cash');
       const actual = effect.amount * Math.min(sellerScale, buyerScale);
+      const cash = tradeCashAmount(effect, actual);
       moveResource(game.model, effect.from, effect.resource, -actual);
       moveResource(game.model, effect.to, effect.resource, actual);
-      moveResource(game.model, effect.to, 'cash', -actual * effect.price);
-      moveResource(game.model, effect.from, 'cash', actual * effect.price);
+      moveResource(game.model, effect.to, 'cash', -cash);
+      moveResource(game.model, effect.from, 'cash', cash);
       if (effect.resource === 'food') {
         game.model.cells[effect.from].foodTraded -= actual;
         game.model.cells[effect.to].foodTraded += actual;
