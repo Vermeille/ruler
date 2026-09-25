@@ -11,6 +11,7 @@ import type {
   StepCache,
 } from '../types';
 import {
+  crowns,
   crownsPerMonth,
   foodPrice,
   outputPerPerson,
@@ -239,9 +240,11 @@ export const migrationCashRule: Rule = {
       from: route.from,
       to: route.to,
       resource: 'cash' as const,
-      amount: route.amount
-        * Math.max(0, model.cells[route.from].cash)
-        / Math.max(1e-12, peopleCache.peopleByCell[route.from].population),
+      amount: crowns(
+        route.amount
+          * Math.max(0, model.cells[route.from].cash)
+          / Math.max(1e-12, peopleCache.peopleByCell[route.from].population),
+      ),
     }));
   },
 };
