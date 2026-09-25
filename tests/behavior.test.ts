@@ -37,10 +37,12 @@ test('a one-off food reserve shock is absorbed by production and trade feedback'
 
 test('food scarcity propagates when local farming capacity cannot replenish reserves', t => {
   const run = compareBehavior(base, baseline, game => {
-    const cell = game.model.cells[focal.id];
-    cell.food *= .55;
-    for (const group of game.model.populationGroups[focal.id]) {
-      if (group.occupation === 'agriculture') group.occupation = 'services';
+    const affected = [focal.id, ...game.model.neighbors[focal.id]];
+    for (const id of affected) {
+      game.model.cells[id].food *= .55;
+      for (const group of game.model.populationGroups[id]) {
+        if (group.occupation === 'agriculture') group.occupation = 'services';
+      }
     }
   });
 
