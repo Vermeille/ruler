@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { step, assertModel } from '../src/sim/engine';
 import { summarize } from '../src/sim/math';
 import { defaultRules } from '../src/sim/rules';
-import type { Game, MutableField, Summary } from '../src/sim/types';
+import type { Game, Summary } from '../src/sim/types';
 
 export const BEHAVIOR_MONTHS = 12;
 export const behaviorRules = defaultRules.filter(rule => rule.id !== 'stories.events');
