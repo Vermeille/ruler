@@ -192,6 +192,21 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
     }
   }
 
+  function eventAt(point: { x: number; y: number }) {
+    return activity.events.find(event => {
+      const c = m.cells[event.cell], p = center(c);
+      const radius = Math.max(7.5, Math.min(10.5, cellSize * .4));
+      const x = p.x - cellSize * .23, y = p.y - cellSize * .2;
+      return Math.hypot(point.x - x, point.y - y) <= radius + 5;
+    });
+  }
+
+  function eventTooltipText(event: (typeof activity.events)[number]): string {
+    const c = m.cells[event.cell];
+    const significance = event.magnitude >= .75 ? 'Major event' : event.magnitude >= .35 ? 'Notable event' : 'Local event';
+    return `${event.glyph} ${event.label} · ${significance} · ${c.name}`;
+  }
+
   function tooltipText(c: Mapxel): string {
     const labels = activity.labelsByCell.get(c.id) ?? [];
     const parts = [c.name, terrainIdentity(c, m).label];
@@ -294,9 +309,14 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
   canvas.onpointermove = e => {
     pointer = coords(e); hover = at(pointer);
     if (hover && hover.biome !== 'water' && !start) {
-      tooltip.textContent = tooltipText(hover);
+      const event = eventAt(pointer);
+      tooltip.textContent = event ? eventTooltipText(event) : tooltipText(hover);
+      canvas.style.cursor = event ? 'help' : '';
       tooltip.style.display = 'block'; tooltip.style.left = `${Math.min(pointer.x + 12, canvas.clientWidth - 260)}px`; tooltip.style.top = `${Math.max(8, pointer.y - 36)}px`;
-    } else tooltip.style.display = 'none';
+    } else {
+      canvas.style.cursor = '';
+      tooltip.style.display = 'none';
+    }
     redraw();
   };
   canvas.onpointerup = e => {
@@ -306,7 +326,7 @@ export function attachMap(canvas: HTMLCanvasElement, options: MapOptions): () =>
     start = undefined; canvas.releasePointerCapture(e.pointerId); options.onSelect(ids, e.shiftKey); tooltip.style.display = 'none';
   };
   canvas.onpointercancel = () => { start = undefined; pointer = undefined; redraw(); };
-  canvas.onpointerleave = () => { hover = undefined; tooltip.style.display = 'none'; if (!start) redraw(); };
+  canvas.onpointerleave = () => { hover = undefined; canvas.style.cursor = ''; tooltip.style.display = 'none'; if (!start) redraw(); };
   const observer = new ResizeObserver(redraw);
   const unsubscribeTerrainAtlas = onTerrainAtlasReady(redraw);
   observer.observe(canvas); redraw();
