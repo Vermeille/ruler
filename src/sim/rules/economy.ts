@@ -9,6 +9,7 @@ import {
   type Rule,
 } from '../types';
 import {
+  crowns,
   crownsPerMonth,
   foodCoverage,
   foodPrice,
@@ -81,10 +82,10 @@ export const productionRule: Rule = {
         delta(cell, 'foodMade', personMonths(food - cell.foodMade)),
         delta(cell, 'foodTraded', personMonths(-cell.foodTraded)),
         {
-          kind: 'transfer',
-          from: 'external',
+          kind: 'transfer' as const,
+          from: 'external' as const,
           to: cell.id,
-          resource: 'cash',
+          resource: 'cash' as const,
           amount: oneMonthOf(crownsPerMonth(output * 0.65)),
         },
       ];
@@ -149,20 +150,26 @@ export const tradeRule: Rule = {
 
           if (amount < 0.01) continue;
 
-          const price = resource === 'food'
-            ? foodPrice((a.price + b.price) / 2)
-            : materialPrice(0.65);
-          effects.push({
-            kind: 'trade',
-            from: seller.id,
-            to: buyer.id,
-            resource,
-            amount,
-            price,
-            evidence: resource === 'food'
-              ? tradeEvidence(seller, buyer, buyerPopulation, amount)
-              : undefined,
-          });
+          if (resource === 'food') {
+            effects.push({
+              kind: 'trade',
+              from: seller.id,
+              to: buyer.id,
+              resource: 'food',
+              amount: personMonths(amount),
+              price: foodPrice((a.price + b.price) / 2),
+              evidence: tradeEvidence(seller, buyer, buyerPopulation, amount),
+            });
+          } else {
+            effects.push({
+              kind: 'trade',
+              from: seller.id,
+              to: buyer.id,
+              resource: 'materials',
+              amount: materialUnits(amount),
+              price: materialPrice(0.65),
+            });
+          }
         }
       }
     }
@@ -214,11 +221,11 @@ export const consumptionRule: Rule = {
         delta(cell, 'materials', materialUnits(-materialUse)),
         delta(cell, 'foodSecurity', security - cell.foodSecurity, foodEvidence),
         {
-          kind: 'transfer',
+          kind: 'transfer' as const,
           from: cell.id,
-          to: 'external',
-          resource: 'cash',
-          amount: householdSpending,
+          to: 'external' as const,
+          resource: 'cash' as const,
+          amount: crowns(householdSpending),
         },
       ];
     });
