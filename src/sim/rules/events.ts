@@ -8,7 +8,7 @@ import type {
   PopulationGroup,
   Rule,
 } from '../types';
-import { personMonths } from '../units';
+import { crowns, personMonths } from '../units';
 import { delta, isLand, read } from './helpers';
 
 type EventRandom = (cell: number, channel?: string) => number;
@@ -133,7 +133,7 @@ export const eventRule: Rule = {
           from: 'external',
           to: sport.id,
           resource: 'cash',
-          amount: peopleCache.peopleByCell[sport.id].population * 0.4,
+          amount: crowns(peopleCache.peopleByCell[sport.id].population * 0.4),
         },
       );
     }
