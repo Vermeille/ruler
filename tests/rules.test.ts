@@ -13,6 +13,7 @@ import {
 } from '../src/sim/rules';
 import { buildStepCache } from '../src/sim/step-cache';
 import type { Effect, Game, Mapxel, MutableField, Rule } from '../src/sim/types';
+import { crowns, crownsPerMonth, foodPrice, materialUnits, people, personMonths } from '../src/sim/units';
 
 const tiny = () => createGame('rule-contract', 12, 12, 48);
 const land = (g: Game) => g.model.cells.find(c => c.biome !== 'water')!;
@@ -56,20 +57,20 @@ const environmentEffects = (g: Game) => [
 
 test('production depends on workers, terrain, weather and Clean Air, with an explicit export receipt', () => {
   const g = tiny(), c = land(g), e = effects(productionRule, g);
-  const people = buildStepCache(g.model).peopleByCell[c.id];
-  const labor = people.employmentRate * (.65 + .35 * people.averageHealth);
+  const localPeople = buildStepCache(g.model).peopleByCell[c.id];
+  const labor = localPeople.employmentRate * (.65 + .35 * localPeople.averageHealth);
   const weather = 1 + Math.sin(g.model.tick * Math.PI / 6) * .09;
-  const food = people.population * people.occupationShares.agriculture * (3 + 2 * c.fertility)
+  const food = localPeople.population * localPeople.occupationShares.agriculture * (3 + 2 * c.fertility)
     * labor * weather * (1 - c.pollution * .18) * (1 - c.waterStress * .6);
   near(delta(e, c.id, 'food'), food);
   near(delta(e, c.id, 'foodMade'), food);
   const dry = structuredClone(g); dry.model.cells[c.id].waterStress = .4;
   near(delta(effects(productionRule, dry), c.id, 'foodMade'), food * .76);
-  const output = people.population * labor * (
-    people.occupationShares.agriculture * 6 * c.price
-    + people.occupationShares.manufacturing * 10
-    + people.occupationShares.services * 9 * c.businessHealth
-    + people.occupationShares.sports * (4 + c.sportsInterest * 7)
+  const output = localPeople.population * labor * (
+    localPeople.occupationShares.agriculture * 6 * c.price
+    + localPeople.occupationShares.manufacturing * 10
+    + localPeople.occupationShares.services * 9 * c.businessHealth
+    + localPeople.occupationShares.sports * (4 + c.sportsInterest * 7)
   );
   near(delta(e, c.id, 'output'), output - c.output);
   assert.ok(e.some(x => x.kind === 'transfer' && x.from === 'external' && x.to === c.id && Math.abs(x.amount - output * .65) < 1e-7));
@@ -81,8 +82,8 @@ test('production depends on workers, terrain, weather and Clean Air, with an exp
 test('neighbor trade moves toward equal stock per resident and better roads increase the offer', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
-  for (const c of g.model.cells) if (c.biome !== 'water') c.food = c.population;
-  a.food = 3 * a.population;
+  for (const c of g.model.cells) if (c.biome !== 'water') c.food = personMonths(c.population);
+  a.food = personMonths(3 * a.population);
   const offer = (game: Game) => effects(tradeRule, game).find(e => e.kind === 'trade' && e.resource === 'food' && e.from === a.id && e.to === b.id);
   const low = offer(g); assert.ok(low && low.kind === 'trade' && low.amount > 0);
   const highRoad = structuredClone(g); highRoad.model.cells[a.id].infrastructure = 1; highRoad.model.cells[b.id].infrastructure = 1;
@@ -91,7 +92,9 @@ test('neighbor trade moves toward equal stock per resident and better roads incr
 });
 
 test('households consume available food, spoil leftovers and pay imports without minting cash', () => {
-  const g = tiny(), c = land(g); c.food = c.population * .5; c.materials = c.population * .4;
+  const g = tiny(), c = land(g);
+  c.food = personMonths(c.population * .5);
+  c.materials = materialUnits(c.population * .4);
   const e = effects(consumptionRule, g);
   near(delta(e, c.id, 'food'), -c.food);
   near(delta(e, c.id, 'foodSecurity'), -.5);
@@ -106,8 +109,14 @@ test('households consume available food, spoil leftovers and pay imports without
 });
 
 test('scarcity raises food prices and lowers business health in the market rule', () => {
-  const fed = tiny(), c = land(fed); c.foodUsed = c.population; c.food = c.population; c.foodSecurity = 1;
-  const short = structuredClone(fed); short.model.cells[c.id].foodUsed = 0; short.model.cells[c.id].food = 0; short.model.cells[c.id].foodSecurity = .4;
+  const fed = tiny(), c = land(fed);
+  c.foodUsed = personMonths(c.population);
+  c.food = personMonths(c.population);
+  c.foodSecurity = 1;
+  const short = structuredClone(fed);
+  short.model.cells[c.id].foodUsed = personMonths(0);
+  short.model.cells[c.id].food = personMonths(0);
+  short.model.cells[c.id].foodSecurity = .4;
   const a = effects(marketRule, fed), b = effects(marketRule, short);
   assert.ok(delta(b, c.id, 'price') > delta(a, c.id, 'price'));
   assert.ok(delta(b, c.id, 'businessHealth') < delta(a, c.id, 'businessHealth'));
@@ -116,7 +125,9 @@ test('scarcity raises food prices and lowers business health in the market rule'
 
 test('food price controls separate posted prices from the local scarcity signal', () => {
   const g = tiny(), c = land(g);
-  c.foodSecurity = .25; c.foodUsed = c.population * .25; c.food = 0;
+  c.foodSecurity = .25;
+  c.foodUsed = personMonths(c.population * .25);
+  c.food = personMonths(0);
   const free = step(g, [marketRule]);
   const controlled = structuredClone(g);
   controlled.model.policy.laws.foodPriceControls = true;
@@ -128,7 +139,9 @@ test('food price controls separate posted prices from the local scarcity signal'
 });
 
 test('tax collection is cash-capped, while the fiscal forecast uses measured output', () => {
-  const g = tiny(), c = land(g); c.cash = 1; c.output = 1000;
+  const g = tiny(), c = land(g);
+  c.cash = crowns(1);
+  c.output = crownsPerMonth(1000);
   const due = Math.min(c.cash, c.output * (.7 * g.model.policy.incomeTax + .3 * g.model.policy.businessTax));
   const e = effects(taxationRule, g);
   assert.ok(e.some(x => x.kind === 'transfer' && x.from === c.id && x.to === 'treasury' && x.amount === due));
@@ -140,7 +153,7 @@ test('tax collection is cash-capped, while the fiscal forecast uses measured out
 });
 test('cash exhausted to floating-point precision never requests a negative tax transfer', () => {
   const g = tiny(), c = land(g);
-  c.cash = -1e-14;
+  c.cash = crowns(-1e-14);
   const payment = effects(taxationRule, g).find(e => e.kind === 'transfer' && e.from === c.id);
   assert.ok(payment && payment.kind === 'transfer');
   assert.equal(payment.amount, 0);
@@ -148,14 +161,17 @@ test('cash exhausted to floating-point precision never requests a negative tax t
 
 test('financing borrows only up to the remaining debt limit', () => {
   const g = tiny(), population = g.initial.population;
-  g.model.treasury = 0; g.model.debt = population * 30 - 10;
+  g.model.treasury = crowns(0);
+  g.model.debt = crowns(population * 30 - 10);
   const financed = step(g, [financingRule]);
   near(financed.model.budget.borrowed, 10);
   near(financed.model.debt, population * 30);
 });
 
 test('fiscal payments share scarce cash proportionally', () => {
-  const fiscal = tiny(); fiscal.model.treasury = 100; fiscal.model.externalCash = 1e12;
+  const fiscal = tiny();
+  fiscal.model.treasury = crowns(100);
+  fiscal.model.externalCash = crowns(1e12);
   const forecast = forecastBudget(fiscal.model);
   const paid = step(fiscal, [fiscalRule]);
   near(paid.model.budget.funding, 100 / forecast.spending);
@@ -165,9 +181,9 @@ test('fiscal payments share scarce cash proportionally', () => {
 
 test('fiscal surplus above operating reserves repays debt with an explicit cash transfer', () => {
   const g = tiny(), reserve = g.initial.population * 6;
-  g.model.debt = reserve * 2;
+  g.model.debt = crowns(reserve * 2);
   const forecast = forecastBudget(g.model);
-  g.model.treasury = reserve + forecast.spending + forecast.interest + reserve;
+  g.model.treasury = crowns(reserve + forecast.spending + forecast.interest + reserve);
   const totalCash = g.model.treasury + g.model.externalCash + g.model.cells.reduce((sum, c) => sum + c.cash, 0);
   const paid = step(g, [fiscalRule]);
   near(paid.model.debt, g.model.debt - reserve);
@@ -178,7 +194,7 @@ test('fiscal surplus above operating reserves repays debt with an explicit cash 
 
 test('floating-point exhausted treasury never requests negative fiscal transfers', () => {
   const g = tiny();
-  g.model.treasury = -1e-12;
+  g.model.treasury = crowns(-1e-12);
   const proposed = effects(fiscalRule, g).filter((effect): effect is Extract<Effect, { kind: 'transfer' | 'repayDebt' }> =>
     effect.kind === 'transfer' || effect.kind === 'repayDebt');
   assert.ok(proposed.every(effect => effect.amount >= 0));
@@ -333,17 +349,24 @@ test('migration moves population and its cash consequence follows the same plann
 test('migration follows local earning opportunities when other conditions match', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
-  for (const c of [a, b]) Object.assign(c, { population: 200, cash: 8000, employment: .9, foodSecurity: 1, price: 1 });
+  for (const c of [a, b]) Object.assign(c, {
+    population: people(200),
+    cash: crowns(8000),
+    employment: .9,
+    foodSecurity: 1,
+    price: foodPrice(1),
+  });
   setResidentWellbeing(g, a.id, .65);
   setResidentWellbeing(g, b.id, .65);
-  a.output = 400; b.output = 1600;
+  a.output = crownsPerMonth(400);
+  b.output = crownsPerMonth(1600);
   assert.ok(expectedOutboundMigrants(g, a.id) > 0, 'workers move out of the lower-opportunity place');
 });
 
 test('migration does not request negative savings transfers from a cash-depleted cell', () => {
   const g = tiny(), a = g.model.cells.find(c => c.biome !== 'water' && g.model.neighbors[c.id].length)!;
   const b = g.model.cells[g.model.neighbors[a.id][0]];
-  a.cash = -1e-14;
+  a.cash = crowns(-1e-14);
   setResidentWellbeing(g, a.id, .1);
   setResidentWellbeing(g, b.id, .9);
   const moves = migrationEffects(g, 0).filter(e =>
@@ -358,14 +381,14 @@ test('high food costs or shortages raise outward migration pressure', () => {
   for (const id of [b.id, ...g.model.neighbors[b.id]]) {
     const cell = g.model.cells[id];
     if (cell.biome !== 'water') {
-      Object.assign(cell, { cash: 8000, foodSecurity: 1, price: 1 });
+      Object.assign(cell, { cash: crowns(8000), foodSecurity: 1, price: foodPrice(1) });
       setResidentWellbeing(g, id, .65);
     }
   }
   const baseline = expectedOutboundMigrants(g, b.id);
 
   const expensive = structuredClone(g);
-  expensive.model.cells[b.id].price = 5;
+  expensive.model.cells[b.id].price = foodPrice(5);
   const costlyFlow = expectedOutboundMigrants(expensive, b.id);
 
   const hungry = structuredClone(g);
