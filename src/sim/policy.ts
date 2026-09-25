@@ -11,6 +11,7 @@ import {
   type Scope,
   type Sector,
 } from './types';
+import { crowns, foodPrice, type Crowns } from './units';
 
 const TAXES = ['incomeTax', 'businessTax'] as const;
 const PROJECTS = ['transport', 'hospital', 'school', 'stadium'] as const;
@@ -407,8 +408,8 @@ function applyInvestment(model: Model, action: Extract<Action, { type: 'invest' 
   const divisor = action.project === 'stadium' ? 30 : 60;
   const improvement = action.amount / population / divisor;
 
-  model.treasury -= action.amount;
-  model.externalCash += action.amount;
+  model.treasury = crowns(model.treasury - action.amount);
+  model.externalCash = crowns(model.externalCash + action.amount);
 
   for (const id of cells) {
     model.cells[id][field] = clamp(model.cells[id][field] + improvement);
@@ -429,7 +430,7 @@ function mutatePolicy(model: Model, action: Action, cause: string): void {
     case 'law':
       model.policy.laws[action.law] = action.enabled;
       if (action.law === 'foodPriceControls' && action.enabled) {
-        for (const cell of model.cells) cell.price = Math.min(cell.price, 1);
+        for (const cell of model.cells) cell.price = foodPrice(Math.min(cell.price, 1));
       }
       break;
     case 'subsidy':
@@ -595,6 +596,6 @@ export function enact(game: Game, input: unknown): Game {
   return next;
 }
 
-export function debtLimit(model: DeepReadonly<Model>): number {
-  return summarize(model).population * 30;
+export function debtLimit(model: DeepReadonly<Model>): Crowns {
+  return crowns(summarize(model).population * 30);
 }
