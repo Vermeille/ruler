@@ -1,7 +1,6 @@
 import test from 'node:test';
 import { createGame } from '../src/sim/world';
 import {
-  assertBehaviorTriggered,
   assertRipple,
   compareBehavior,
   formatBehaviorRun,
@@ -28,14 +27,14 @@ test('food scarcity triggers household/market behavior and propagates into price
 
   reportRun('Food scarcity', run);
 
-  assertBehaviorTriggered(run, 'economy.households');
-  assertBehaviorTriggered(run, 'economy.businesses');
-  assertRipple(run, 'foodSecurity', r => r.deltas.some(delta => delta < -1e-4),
-    'Less starting food must become measurably worse food access');
-  assertRipple(run, 'price', r => r.deltas.some(delta => delta > 1e-4),
-    'The shortage must propagate into the price signal');
-  assertRipple(run, 'happiness', r => r.firstVisibleMonth !== null,
-    'The material shock must eventually reach resident wellbeing');
+  assertRipple(run, 'foodSecurity', r => r.deltas[0] < -1e-4,
+    'Less starting food must immediately become worse food access through household consumption');
+  assertRipple(run, 'price', r => r.deltas.slice(0, 3).some(delta => delta > 1e-4),
+    'Worse food access must propagate into the market price signal');
+  assertRipple(run, 'happiness', r => r.firstVisibleMonth !== null && r.deltas.some(delta => delta < 0),
+    'Food access and purchasing-power pressure must propagate into resident wellbeing');
+  assertRipple(run, 'approval', r => r.firstVisibleMonth !== null && r.deltas.some(delta => delta < 0),
+    'Lower resident wellbeing must eventually propagate into approval');
 
   t.diagnostic(formatBehaviorRun(run));
 });
@@ -65,8 +64,11 @@ test('better local infrastructure ripples through production/trade instead of re
 
   reportRun('Infrastructure improvement', run);
 
-  assertRipple(run, 'output', r => r.firstVisibleMonth !== null && r.peak > 1e-3,
-    'Infrastructure must change downstream economic output');
+  // Calibration contract: an 8-point infrastructure improvement in one connected
+  // local region should produce at least a 0.01-unit national output difference
+  // within a year. If this is red, tune the simulation response rather than the test.
+  assertRipple(run, 'output', r => r.firstVisibleMonth !== null && r.peak >= 1e-2,
+    'Regional infrastructure must have an economically meaningful downstream output effect');
   assertRipple(run, 'food', r => r.firstVisibleMonth !== null,
     'Infrastructure must alter real food stocks through production/trade');
   assertRipple(run, 'wealth', r => r.firstVisibleMonth !== null,
