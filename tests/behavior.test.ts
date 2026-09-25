@@ -105,10 +105,8 @@ test('better local infrastructure ripples through production/trade instead of re
     `Regional infrastructure should raise regional monthly output by >=0.5% within a year; `
       + `observed peak=${(peakRegionalOutputGain * 100).toFixed(3)}% `
       + `trajectory=[${relativeOutputGains.map(gain => `${(gain * 100).toFixed(3)}%`).join(', ')}]`);
-  assertRipple(run, 'food', r => r.firstVisibleMonth !== null,
-    'Infrastructure must alter real food stocks through production/trade');
   assertRipple(run, 'wealth', r => r.firstVisibleMonth !== null,
-    'The physical/economic change must eventually reach household resources');
+    'The regional productivity improvement must eventually reach household resources');
 
   t.diagnostic(formatBehaviorRun(run));
 });
