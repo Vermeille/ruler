@@ -19,17 +19,36 @@ const report: BehaviorReportEntry[] = [];
 test.after(() => writeBehaviorReport(report));
 const reportRun = (name: string, run: BehaviorReportEntry['run']) => report.push({ name, run });
 
-test('food scarcity triggers household/market behavior and propagates into prices and wellbeing', t => {
+test('a one-off food reserve shock is absorbed by production and trade feedback', t => {
   const run = compareBehavior(base, baseline, game => {
     const cell = game.model.cells[focal.id];
     cell.food *= .55;
   });
 
-  reportRun('Food scarcity', run);
+  reportRun('Recoverable food reserve shock', run);
 
-  assertRipple(run, 'foodSecurity', r => r.deltas[0] < -1e-4,
-    'Less starting food must immediately become worse food access through household consumption');
-  assertRipple(run, 'price', r => r.deltas.slice(0, 3).some(delta => delta > 1e-4),
+  assertRipple(run, 'foodSecurity', r => r.peak < 1e-4,
+    'Normal production and trade should absorb a 45% local reserve loss without meaningful food insecurity');
+  assertRipple(run, 'happiness', r => r.peak < 1e-4,
+    'A successfully absorbed reserve shock should not become resident hardship');
+
+  t.diagnostic(formatBehaviorRun(run));
+});
+
+test('food scarcity propagates when local farming capacity cannot replenish reserves', t => {
+  const run = compareBehavior(base, baseline, game => {
+    const cell = game.model.cells[focal.id];
+    cell.food *= .55;
+    for (const group of game.model.populationGroups[focal.id]) {
+      group.occupation.agriculture = 0;
+    }
+  });
+
+  reportRun('Food shock without local farming', run);
+
+  assertRipple(run, 'foodSecurity', r => r.deltas.some(delta => delta < -1e-4),
+    'Without local farming, depleted reserves must eventually become worse food access');
+  assertRipple(run, 'price', r => r.deltas.some(delta => delta > 1e-4),
     'Worse food access must propagate into the market price signal');
   assertRipple(run, 'happiness', r => r.firstVisibleMonth !== null && r.deltas.some(delta => delta < 0),
     'Food access and purchasing-power pressure must propagate into resident wellbeing');
