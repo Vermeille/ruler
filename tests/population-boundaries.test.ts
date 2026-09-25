@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { commitEffects } from '../src/sim/engine';
 import { deepFreeze } from '../src/sim/math';
+import { people } from '../src/sim/units';
 import { createGame } from '../src/sim/world';
 
 test('raw mapxel population deltas are rejected instead of reconciling groups afterward', () => {
@@ -13,7 +14,7 @@ test('raw mapxel population deltas are rejected instead of reconciling groups af
 
   assert.throws(() => commitEffects(game, snapshot, [{
     rule: 'legacy.population-write',
-    effect: { kind: 'delta', cell: cell.id, field: 'population', amount: -1 },
+    effect: { kind: 'delta', cell: cell.id, field: 'population', amount: people(-1) },
   }]), /dedicated effect/);
 
   assert.equal(cell.population, populationBefore);
