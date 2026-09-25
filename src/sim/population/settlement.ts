@@ -1,4 +1,5 @@
 import type { DeepReadonly, Effect, Model, PopulationGroup } from '../types';
+import { people } from '../units';
 import { ARCHETYPE_COUNT } from './archetypes';
 import {
   applyPopulationStateDelta,
@@ -155,6 +156,10 @@ function removeGroup(model: Model, cell: number, id: number): void {
   if (index >= 0) groups.splice(index, 1);
 }
 
+function changePopulation(model: Model, cell: number, amount: number): void {
+  model.cells[cell].population = people(model.cells[cell].population + amount);
+}
+
 function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'population-delta' }>, amount: number): number {
   const id = model.nextPopulationGroupId++;
   model.populationGroups[effect.cell].push({
@@ -164,7 +169,7 @@ function addBirth(model: Model, effect: Extract<PopulationEffect, { kind: 'popul
     archetype: effect.archetype!,
     count: amount,
   });
-  model.cells[effect.cell].population += amount;
+  changePopulation(model, effect.cell, amount);
   return id;
 }
 
@@ -215,7 +220,7 @@ function settleIndependentPopulation(
 
     if (effect.kind === 'population-delta') {
       live.count = Math.max(0, source.count - actual);
-      model.cells[cell].population -= actual;
+      changePopulation(model, cell, -actual);
       if (live.count <= 1e-12) removeGroup(model, cell, live.id);
       outcomes.push(outcome);
       continue;
@@ -226,8 +231,8 @@ function settleIndependentPopulation(
       if (effect.kind === 'population-transfer') {
         removeGroup(model, cell, live.id);
         model.populationGroups[effect.to].push(live);
-        model.cells[cell].population -= actual;
-        model.cells[effect.to].population += actual;
+        changePopulation(model, cell, -actual);
+        changePopulation(model, effect.to, actual);
       } else {
         applyGroupChange(live, source, effect);
       }
@@ -244,8 +249,8 @@ function settleIndependentPopulation(
     const destination = effect.kind === 'population-transfer' ? effect.to : cell;
     model.populationGroups[destination].push(child);
     if (effect.kind === 'population-transfer') {
-      model.cells[cell].population -= actual;
-      model.cells[destination].population += actual;
+      changePopulation(model, cell, -actual);
+      changePopulation(model, destination, actual);
     }
     outcomes.push(outcome);
   }
@@ -294,8 +299,8 @@ export function settlePopulation(
       if (only.kind === 'population-transfer') {
         removeGroup(model, cell, live.id);
         model.populationGroups[only.to].push(live);
-        model.cells[cell].population -= consumed;
-        model.cells[only.to].population += consumed;
+        changePopulation(model, cell, -consumed);
+        changePopulation(model, only.to, consumed);
       } else {
         applyGroupChange(live, source, only);
       }
@@ -309,7 +314,7 @@ export function settlePopulation(
       const amount = actuals[index];
       if (amount <= 1e-12) return;
       if (effect.kind === 'population-delta') {
-        model.cells[cell].population -= amount;
+        changePopulation(model, cell, -amount);
         return;
       }
       const child = changedGroup(source, effect);
@@ -319,8 +324,8 @@ export function settlePopulation(
       const destination = effect.kind === 'population-transfer' ? effect.to : cell;
       model.populationGroups[destination].push(child);
       if (effect.kind === 'population-transfer') {
-        model.cells[cell].population -= amount;
-        model.cells[destination].population += amount;
+        changePopulation(model, cell, -amount);
+        changePopulation(model, destination, amount);
       }
     });
     if (live.count <= 1e-12) removeGroup(model, cell, live.id);
