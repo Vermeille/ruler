@@ -3,6 +3,7 @@ import { clamp } from '../math';
 import { subsidyFor } from '../policy';
 import { resolveStepCache } from '../step-cache';
 import { SECTORS, type Effect, type Rule } from '../types';
+import { crowns } from '../units';
 import { isLand } from './helpers';
 
 // [I] FISCAL-TAX1
@@ -26,20 +27,20 @@ export const taxationRule: Rule = {
         from: cell.id,
         to: 'treasury',
         resource: 'cash',
-        amount: due,
+        amount: crowns(due),
       });
     }
 
     effects.push({
       kind: 'budget',
       value: {
-        revenue,
-        spending: 0,
-        interest: 0,
-        borrowed: 0,
+        revenue: crowns(revenue),
+        spending: crowns(0),
+        interest: crowns(0),
+        borrowed: crowns(0),
         funding: 1,
       },
-      debtDelta: 0,
+      debtDelta: crowns(0),
     });
 
     return effects;
@@ -65,16 +66,16 @@ export const financingRule: Rule = {
 
     return [
       {
-        kind: 'transfer',
-        from: 'external',
-        to: 'treasury',
-        resource: 'cash',
-        amount: borrowed,
+        kind: 'transfer' as const,
+        from: 'external' as const,
+        to: 'treasury' as const,
+        resource: 'cash' as const,
+        amount: crowns(borrowed),
       },
       {
-        kind: 'budget',
-        value: { ...model.budget, borrowed },
-        debtDelta: borrowed,
+        kind: 'budget' as const,
+        value: { ...model.budget, borrowed: crowns(borrowed) },
+        debtDelta: crowns(borrowed),
       },
     ];
   },
@@ -109,9 +110,9 @@ export const fiscalRule: Rule = {
         from: 'treasury',
         to: 'external',
         resource: 'cash',
-        amount: interest,
+        amount: crowns(interest),
       },
-      { kind: 'repayDebt', amount: principalRepaid },
+      { kind: 'repayDebt', amount: crowns(principalRepaid) },
     ];
     const serviceRate = Object.values(model.policy.spending)
       .reduce((sum, amount) => sum + amount, 0);
@@ -130,14 +131,14 @@ export const fiscalRule: Rule = {
         from: 'treasury',
         to: cell.id,
         resource: 'cash',
-        amount: basicServices * 0.72 + subsidies,
+        amount: crowns(basicServices * 0.72 + subsidies),
       });
       effects.push({
         kind: 'transfer',
         from: 'treasury',
         to: 'external',
         resource: 'cash',
-        amount: basicServices * 0.28,
+        amount: crowns(basicServices * 0.28),
       });
     }
 
@@ -145,11 +146,11 @@ export const fiscalRule: Rule = {
       kind: 'budget',
       value: {
         ...model.budget,
-        spending: forecast.spending * funding,
-        interest,
+        spending: crowns(forecast.spending * funding),
+        interest: crowns(interest),
         funding,
       },
-      debtDelta: forecast.interest - interest,
+      debtDelta: crowns(forecast.interest - interest),
     });
 
     return effects;
