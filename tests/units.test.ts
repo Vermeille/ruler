@@ -1,34 +1,51 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MAPXEL_FIELDS } from '../src/sim/map-fields';
-import { SUMMARY_FIELDS } from '../src/sim/math';
+import {
+  REFERENCE_FOOD_PRICE,
+  crowns,
+  crownsPerMonth,
+  foodCoverage,
+  foodPrice,
+  foodTradeCost,
+  materialPrice,
+  materialTradeCost,
+  materialUnits,
+  monthlyFoodNeed,
+  oneMonthOf,
+  outputPerPerson,
+  people,
+  personMonths,
+  relativeFoodPrice,
+} from '../src/sim/units';
 
-test('simulation fields expose meaningful units and descriptions', () => {
-  for (const [field, spec] of Object.entries(MAPXEL_FIELDS)) {
-    assert.ok(spec.unit, `${field} must declare a unit`);
-    assert.ok(spec.description.trim(), `${field} must describe its semantics`);
-  }
-
-  for (const [field, spec] of Object.entries(SUMMARY_FIELDS)) {
-    assert.ok(spec.unit, `${field} must declare a unit`);
-    assert.ok(spec.description.trim(), `${field} must describe its semantics`);
-  }
+test('unit constructors are zero-overhead values suitable for fixtures', () => {
+  assert.equal(people(12), 12);
+  assert.equal(personMonths(18), 18);
+  assert.equal(crowns(42), 42);
+  assert.equal(foodPrice(1.3), 1.3);
 });
 
-test('food accounting uses person-months while food security is a coverage share', () => {
-  assert.equal(MAPXEL_FIELDS.food.unit, 'person-month');
-  assert.equal(MAPXEL_FIELDS.foodMade.unit, 'person-month');
-  assert.equal(MAPXEL_FIELDS.foodUsed.unit, 'person-month');
-  assert.equal(MAPXEL_FIELDS.foodTraded.unit, 'person-month');
-  assert.equal(MAPXEL_FIELDS.foodSecurity.unit, 'share');
-  assert.equal(SUMMARY_FIELDS.food.unit, 'person-month');
-  assert.equal(SUMMARY_FIELDS.foodSecurity.unit, 'share');
+test('food accounting is written in person-months and coverage shares', () => {
+  const population = people(100);
+  const need = monthlyFoodNeed(population);
+
+  assert.equal(need, personMonths(100));
+  assert.equal(foodCoverage(personMonths(73), need), 0.73);
+  assert.equal(foodCoverage(personMonths(140), need), 1);
 });
 
-test('economic activity is not mislabeled as money', () => {
-  assert.equal(MAPXEL_FIELDS.output.unit, 'activity/month');
-  assert.equal(SUMMARY_FIELDS.output.unit, 'activity/month');
-  assert.equal(MAPXEL_FIELDS.cash.unit, 'crown');
-  assert.equal(SUMMARY_FIELDS.treasury.unit, 'crown');
-  assert.equal(SUMMARY_FIELDS.debt.unit, 'crown');
+test('food price is money per person-month, not an unexplained index', () => {
+  assert.equal(REFERENCE_FOOD_PRICE, foodPrice(1));
+  assert.equal(relativeFoodPrice(foodPrice(1.4)), 1.4);
+  assert.equal(foodTradeCost(personMonths(20), foodPrice(1.5)), crowns(30));
+});
+
+test('materials have their own quantity and price units', () => {
+  assert.equal(materialTradeCost(materialUnits(10), materialPrice(0.65)), crowns(6.5));
+});
+
+test('monthly output has explicit time and per-person conversions', () => {
+  const output = crownsPerMonth(600);
+  assert.equal(oneMonthOf(output), crowns(600));
+  assert.equal(outputPerPerson(output, people(100)), 6);
 });
