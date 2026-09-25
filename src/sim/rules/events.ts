@@ -8,6 +8,7 @@ import type {
   PopulationGroup,
   Rule,
 } from '../types';
+import { personMonths } from '../units';
 import { delta, isLand, read } from './helpers';
 
 type EventRandom = (cell: number, channel?: string) => number;
@@ -162,7 +163,7 @@ export const eventRule: Rule = {
         effects.push(delta(
           cell,
           'food',
-          -cell.food * 0.35,
+          personMonths(-cell.food * 0.35),
           {
             title: `${cell.name}: the drought reduces food reserves`,
             detail: 'Regional weather destroyed 35% of food in storage.',
