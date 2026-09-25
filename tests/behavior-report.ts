@@ -90,7 +90,14 @@ function responseTable(entry: BehaviorReportEntry): string {
 function section(entry: BehaviorReportEntry): string {
   const visible = Object.values(entry.run.responses).filter(r => r.classification !== 'silent');
   const chartMetrics = visible.sort((a, b) => b.peak - a.peak).slice(0, 6).map(r => r.metric);
-  const mapFields = MAP_FIELDS.filter(field => entry.run.responses[field].classification !== 'silent').slice(0, 3);
+  const mapFields = MAP_FIELDS.filter(field => {
+    const response = entry.run.responses[field as BehaviorMetric];
+    if (response) return response.classification !== 'silent';
+    return entry.run.baseline.some((frame, index) => {
+      const perturbed = entry.run.perturbed[index];
+      return frame.map.some((cell, cellIndex) => Math.abs(perturbed.map[cellIndex][field] - cell[field]) > 1e-12);
+    });
+  }).slice(0, 3);
   return `<section><h2>${escapeHtml(entry.name)}</h2>
     <div class="legend"><span class="baseline-key">Baseline</span><span class="perturbed-key">Perturbed</span></div>
     <div class="charts">${chartMetrics.map(metric => trajectoryChart(entry, metric)).join('')}</div>
