@@ -10,6 +10,13 @@ import type {
   Rule,
   StepCache,
 } from '../types';
+import {
+  crownsPerMonth,
+  foodPrice,
+  outputPerPerson,
+  people,
+  relativeFoodPrice,
+} from '../units';
 import { isLand } from '../rules/helpers';
 import { archetypeAt } from './archetypes';
 import { viabilityOf } from './employment';
@@ -39,14 +46,16 @@ function migrationAppeal(
   const employment = atHome ? (group.employed ? 1 : 0.2) : 0.2 + jobChance * 0.8;
   const expectedIncome = atHome
     ? group.income
-    : cell.output / Math.max(1, population) * (0.8 + group.education * 0.3) * jobChance;
+    : outputPerPerson(crownsPerMonth(cell.output), people(population))
+      * (0.8 + group.education * 0.3) * jobChance;
+  const normalizedFoodPrice = relativeFoodPrice(foodPrice(cell.price));
   const purchasingPower = clamp(
-    (expectedIncome + Math.min(group.wealth, 30) * 0.08) / (6 * cell.price),
+    (expectedIncome + Math.min(group.wealth, 30) * 0.08) / (6 * normalizedFoodPrice),
   );
   const food = clamp(
     cell.foodSecurity
       + wealthBuffer * 0.08
-      - Math.max(0, cell.price - 1) * (1 - wealthBuffer) * 0.12,
+      - Math.max(0, normalizedFoodPrice - 1) * (1 - wealthBuffer) * 0.12,
   );
   const health = atHome ? group.health : cell.health;
   const needs = archetype.needs;
