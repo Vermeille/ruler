@@ -1,6 +1,7 @@
 import { clamp } from '../math';
 import { resolveStepCache } from '../step-cache';
 import type { Archetype, Effect, PopulationGroup, Rule } from '../types';
+import { crownsPerMonth, foodPrice, outputPerPerson, people, relativeFoodPrice } from '../units';
 import { archetypeAt } from './archetypes';
 
 type LocalConditions = {
@@ -19,9 +20,13 @@ function livedWellbeing(
   archetype: Archetype,
   cell: LocalConditions,
 ): number {
+  const normalizedFoodPrice = relativeFoodPrice(foodPrice(cell.price));
   const buffer = clamp(group.wealth / 35);
-  const food = clamp(cell.foodSecurity + buffer * 0.08 - Math.max(0, cell.price - 1) * (1 - buffer) * 0.12);
-  const purchasingPower = clamp((group.income + Math.min(group.wealth, 30) * 0.08) / (6 * cell.price));
+  const food = clamp(cell.foodSecurity + buffer * 0.08
+    - Math.max(0, normalizedFoodPrice - 1) * (1 - buffer) * 0.12);
+  const purchasingPower = clamp(
+    (group.income + Math.min(group.wealth, 30) * 0.08) / (6 * normalizedFoodPrice),
+  );
   const employment = group.lifeStage === 'adult' ? (group.employed ? 1 : 0.2) : 0.7;
   const needs = archetype.needs;
   const weight = needs.food + needs.income + needs.employment + needs.health + needs.safety
@@ -60,26 +65,27 @@ export const populationExperienceRule: Rule = {
     const cultureFunding = model.policy.spending.culture * model.budget.funding;
     for (const cell of model.cells) {
       if (cell.biome === 'water') continue;
-      const people = peopleCache.peopleByCell[cell.id];
-      const macroWealth = cell.cash / Math.max(people.population, 1e-12);
+      const localPeople = peopleCache.peopleByCell[cell.id];
+      const macroWealth = cell.cash / Math.max(localPeople.population, 1e-12);
       const conditions: LocalConditions = {
         foodSecurity: cell.foodSecurity,
         price: cell.price,
         crime: cell.crime,
         pollution: cell.pollution,
         education: cell.education,
-        population: people.population,
-        housing: clamp(1 - people.population / 20_000),
+        population: localPeople.population,
+        housing: clamp(1 - localPeople.population / 20_000),
         culture: clamp(0.5 + cultureFunding),
       };
       for (const group of model.populationGroups[cell.id]) {
         const archetype = archetypeAt(model.seed, group.archetype, model.archetypeModelVersion);
         const incomeTarget = group.lifeStage === 'adult' && group.employed
-          ? cell.output / Math.max(people.population, 1e-12) * (0.8 + group.education * 0.3)
+          ? outputPerPerson(crownsPerMonth(cell.output), people(localPeople.population))
+            * (0.8 + group.education * 0.3)
           : 0;
         const incomeChange = (incomeTarget - group.income) * 0.18;
         const nextIncome = group.income + incomeChange;
-        const necessities = 1.5 + cell.price * 1.7;
+        const necessities = 1.5 + relativeFoodPrice(foodPrice(cell.price)) * 1.7;
         const wealthChange = Math.max(-group.wealth, (nextIncome - necessities) * 0.25
           + (macroWealth - group.wealth) * 0.01);
         const healthChange = (cell.health - group.health) * 0.04;
