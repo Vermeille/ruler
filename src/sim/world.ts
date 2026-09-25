@@ -261,7 +261,7 @@ export function createGame(
   seed = 'alder-42',
   width = 36,
   height = 26,
-  mandate = 48,
+  mandate = 60,
 ): Game {
   validateWorldParameters(seed, width, height, mandate);
 

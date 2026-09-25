@@ -5,7 +5,7 @@ defineEmits<{ close: [] }>();
 
 <template>
   <BaseModal title="Your field guide" @close="$emit('close')">
-    <p class="lead">You have 48 months. There is no single winning budget.</p>
+    <p class="lead">You have five years (60 months). There is no single winning budget.</p>
     <ol class="guide">
       <li><strong>Read the country.</strong> Select a mapxel, drag a region, or use the region menu. Change map layers to find unequal conditions. Shift-click adds or removes mapxels.</li>
       <li><strong>Make a decision.</strong> Adjust taxes, fund a service, subsidize an industry, invest locally, or change a law in the cabinet. Review the projected cost, then enact it.</li>
