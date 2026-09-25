@@ -1,5 +1,6 @@
 import { clamp } from '../math';
 import type { DeepReadonly, Effect, Evidence, PopulationGroup, Rule } from '../types';
+import { people } from '../units';
 import { archetypeAt } from './archetypes';
 
 function naturalMortalityWeight(group: DeepReadonly<PopulationGroup>): number {
@@ -277,7 +278,7 @@ export const starvationReportRule: Rule = {
         kind: 'delta' as const,
         cell: cell.id,
         field: 'starvationDeaths' as const,
-        amount: target - cell.starvationDeaths,
+        amount: people(target - cell.starvationDeaths),
       }];
     });
   },
