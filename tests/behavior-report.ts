@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { BehaviorMapCell, BehaviorMetric, BehaviorRun, MetricResponse } from './behavior-harness';
+import type { BehaviorMetric, BehaviorRun, MetricResponse } from './behavior-harness';
 
 export type BehaviorReportEntry = Readonly<{ name: string; run: BehaviorRun }>;
 
