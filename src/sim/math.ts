@@ -1,4 +1,11 @@
 import type { DeepReadonly, Mapxel, Model, Summary } from './types';
+import {
+  crownsPerMonth,
+  crownsPerPerson,
+  foodPrice,
+  people,
+  personMonths,
+} from './units';
 
 export function clamp(value: number, minimum = 0, maximum = 1): number {
   return Math.max(minimum, Math.min(maximum, value));
@@ -57,8 +64,8 @@ export function summarize(
   };
 
   return {
-    population,
-    wealth: cells.reduce((sum, cell) => sum + cell.cash, 0) / populationDivisor,
+    population: people(population),
+    wealth: crownsPerPerson(cells.reduce((sum, cell) => sum + cell.cash, 0) / populationDivisor),
     approval: weightedMean('approval'),
     happiness: weightedMean('happiness'),
     crime: weightedMean('crime'),
@@ -67,10 +74,10 @@ export function summarize(
     pollution: weightedMean('pollution'),
     health: weightedMean('health'),
     education: weightedMean('education'),
-    price: weightedMean('price'),
-    output: cells.reduce((sum, cell) => sum + cell.output, 0),
-    food: cells.reduce((sum, cell) => sum + cell.food, 0),
-    starvationDeaths: cells.reduce((sum, cell) => sum + cell.starvationDeaths, 0),
+    price: foodPrice(weightedMean('price')),
+    output: crownsPerMonth(cells.reduce((sum, cell) => sum + cell.output, 0)),
+    food: personMonths(cells.reduce((sum, cell) => sum + cell.food, 0)),
+    starvationDeaths: people(cells.reduce((sum, cell) => sum + cell.starvationDeaths, 0)),
     treasury: model.treasury,
     debt: model.debt,
   };
